@@ -2,9 +2,9 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = "8737111421:AAFg1ToKmbh4wrUfmjlO4qhWYBP_kEHg9y4"
 
-JSON_URL = "PASTE_YOUR_GITHUB_JSON_URL"
+JSON_URL = "https://github.com/Bimbayo1985/rare-pigeons-assets/blob/main/list.json"
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
