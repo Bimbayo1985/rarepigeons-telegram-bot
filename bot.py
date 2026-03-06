@@ -1,44 +1,84 @@
 import requests
+import random
+import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = "8737111421:AAFg1ToKmbh4wrUfmjlO4qhWYBP_kEHg9y4"
+TOKEN = os.environ["BOT_TOKEN"]
 
-JSON_URL = "https://github.com/Bimbayo1985/rare-pigeons-assets/blob/main/list.json"
+JSON_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if len(context.args) == 0:
-        await update.message.reply_text("Use: /pigeon CARDNAME")
+    try:
+        data = requests.get(JSON_URL).json()
+        cards = data["cards"]
+    except:
+        await update.message.reply_text("Error loading pigeons 🐦")
         return
 
-    card_name = context.args[0].upper()
+    # якщо команда без аргументів → random карта
+    if len(context.args) == 0:
+        card = random.choice(cards)
 
-    data = requests.get(JSON_URL).json()
+    else:
+        name = context.args[0].upper()
+        card = None
 
-    for card in data:
+        for c in cards:
+            if c["asset"] == name:
+                card = c
+                break
 
-        if card["asset"] == card_name:
-
-            image = card["image"]
-
-            text = f"""
-🐦 {card_name}
-
-❤️ HP: {card["hp"]}
-⚔️ ATK: {card["atk"]}
-⚡ SPD: {card["spd"]}
-
-⭐ Rareness: {card["rarity"]}
-"""
-
-            await update.message.reply_photo(photo=image, caption=text)
+        if card is None:
+            await update.message.reply_text("Pigeon not found 🐦")
             return
 
-    await update.message.reply_text("Pigeon not found")
+    asset = card["asset"]
+    image = card["image"]
+
+    caption = f"""
+🐦 {asset}
+
+Rare Pigeons card
+
+View collection:
+https://www.rarepigeons.com
+"""
+
+    await update.message.reply_photo(photo=image, caption=caption)
+
+
+async def randompigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    try:
+        data = requests.get(JSON_URL).json()
+        cards = data["cards"]
+    except:
+        await update.message.reply_text("Error loading pigeons 🐦")
+        return
+
+    card = random.choice(cards)
+
+    asset = card["asset"]
+    image = card["image"]
+
+    caption = f"""
+🐦 {asset}
+
+Random Rare Pigeon
+https://www.rarepigeons.com
+"""
+
+    await update.message.reply_photo(photo=image, caption=caption)
+
 
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("pigeon", pigeon))
+app.add_handler(CommandHandler("random", randompigeon))
+
+print("Rare Pigeons bot started 🐦")
 
 app.run_polling()
