@@ -7,23 +7,19 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-ASSET_URL = "https://cp20.tokenscan.io/asset/"
+ASSET_PAGE = "https://cp20.tokenscan.io/asset/{}"
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
-
-# -------- LOAD CARDS --------
-
-cards_data = requests.get(CARDS_JSON, timeout=20).json()["cards"]
-
-ASSETS = {c["asset"]: c["image"] for c in cards_data}
+cards = requests.get(CARDS_JSON).json()["cards"]
+ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-# -------- HELPERS --------
+# ---------------- helpers ----------------
 
 def get_page(asset):
 
-    r = requests.get(ASSET_URL + asset, timeout=20)
+    r = requests.get(ASSET_PAGE.format(asset), timeout=20)
 
     if r.status_code != 200:
         return None
@@ -31,26 +27,77 @@ def get_page(asset):
     return BeautifulSoup(r.text, "lxml")
 
 
-def find_price(soup, keyword):
+def parse_dispense(soup):
 
-    rows = soup.find_all("tr")
+    tables = soup.find_all("table")
 
-    for r in rows:
+    for table in tables:
 
-        txt = r.get_text(" ", strip=True)
+        if "Dispensed" in table.text:
 
-        if keyword in txt:
+            row = table.find("tbody").find("tr")
+            cols = row.find_all("td")
 
-            parts = txt.split()
+            tx = cols[-1].find("a")["href"].split("/")[-1]
+            price = cols[-2].text.strip()
+            buyer = cols[3].text.strip()
 
-            for p in parts:
-                if "0.000" in p:
-                    return p
+            return price, buyer, tx
 
     return None
 
 
-# -------- COMMANDS --------
+def parse_dispenser_floor(soup):
+
+    tables = soup.find_all("table")
+
+    for table in tables:
+
+        if "Dispensing" in table.text:
+
+            rows = table.find("tbody").find_all("tr")
+
+            best_price = None
+            best_tx = None
+            seller = None
+
+            for r in rows:
+
+                cols = r.find_all("td")
+
+                price = float(cols[-2].text.strip())
+
+                if best_price is None or price < best_price:
+
+                    best_price = price
+                    seller = cols[2].text.strip()
+                    best_tx = cols[-1].find("a")["href"].split("/")[-1]
+
+            return best_price, seller, best_tx
+
+    return None
+
+
+def parse_market(soup):
+
+    tables = soup.find_all("table")
+
+    for table in tables:
+
+        if "Selling" in table.text:
+
+            row = table.find("tbody").find("tr")
+
+            cols = row.find_all("td")
+
+            price = cols[-1].text.strip()
+
+            return price
+
+    return None
+
+
+# ---------------- commands ----------------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -67,14 +114,10 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     await menu(update, context)
 
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not context.args:
-        return
 
     asset = context.args[0].upper()
 
@@ -97,84 +140,75 @@ async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not context.args:
-        return
-
     asset = context.args[0].upper()
 
     soup = get_page(asset)
 
-    if not soup:
-        await update.message.reply_text("Asset not found")
-        return
+    data = parse_dispense(soup)
 
-    price = find_price(soup, "BTC Paid")
-
-    if not price:
+    if not data:
         await update.message.reply_text("No sales found")
         return
+
+    price, buyer, tx = data
 
     caption = f"""🐦 LAST SALE
 
 {asset}
 
+Price
 {price} BTC
 
-https://cp20.tokenscan.io/asset/{asset}
+Buyer
+{buyer}
+
+https://cp20.tokenscan.io/tx/{tx}
 """
 
-    if asset in ASSETS:
-        await update.message.reply_photo(photo=ASSETS[asset], caption=caption)
-    else:
-        await update.message.reply_text(caption)
+    await update.message.reply_photo(
+        photo=ASSETS.get(asset),
+        caption=caption
+    )
 
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not context.args:
-        return
-
     asset = context.args[0].upper()
 
     soup = get_page(asset)
 
-    if not soup:
-        await update.message.reply_text("Asset not found")
-        return
+    data = parse_dispenser_floor(soup)
 
-    price = find_price(soup, "BTC Floor")
-
-    if not price:
+    if not data:
         await update.message.reply_text("No listings")
         return
 
+    price, seller, tx = data
+
     caption = f"""🐦 {asset} FLOOR
 
+Price
 {price} BTC
 
-https://cp20.tokenscan.io/asset/{asset}
+Seller
+{seller}
+
+https://cp20.tokenscan.io/tx/{tx}
 """
 
-    if asset in ASSETS:
-        await update.message.reply_photo(photo=ASSETS[asset], caption=caption)
-    else:
-        await update.message.reply_text(caption)
+    await update.message.reply_photo(
+        photo=ASSETS.get(asset),
+        caption=caption
+    )
 
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not context.args:
-        return
-
     asset = context.args[0].upper()
 
     soup = get_page(asset)
 
-    if not soup:
-        await update.message.reply_text("Asset not found")
-        return
-
-    price = find_price(soup, "Selling")
+    price = parse_market(soup)
 
     if not price:
         await update.message.reply_text("No orders")
@@ -184,22 +218,20 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Best SELL
 
-{price} BTC
-
-https://cp20.tokenscan.io/asset/{asset}
+{price}
 """
 
-    if asset in ASSETS:
-        await update.message.reply_photo(photo=ASSETS[asset], caption=caption)
-    else:
-        await update.message.reply_text(caption)
+    await update.message.reply_photo(
+        photo=ASSETS.get(asset),
+        caption=caption
+    )
 
 
-# -------- MAIN --------
+# ---------------- main ----------------
 
 def main():
 
-    print("Rare Pigeons bot starting")
+    print("Rare Pigeons bot running")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -212,8 +244,6 @@ def main():
     app.add_handler(CommandHandler("ls", ls))
     app.add_handler(CommandHandler("floor", floor))
     app.add_handler(CommandHandler("market", market))
-
-    print("Rare Pigeons bot running")
 
     app.run_polling(drop_pending_updates=True)
 
