@@ -5,7 +5,6 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
@@ -16,225 +15,168 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-# -------- LAST SALE --------
+def last_sale(asset):
 
-def scan_dispenses(asset):
+    url = f"https://tokenscan.io/explorer/dispenses?asset={asset}&start=0&length=1"
 
-    for page in range(30):
+    rows = requests.get(url).json()["data"]
 
-        start = page * 100
+    if not rows:
+        return None
 
-        url = f"https://tokenscan.io/explorer/dispenses?start={start}&length=100"
+    r = rows[0]
 
-        rows = requests.get(url).json()["data"]
-
-        for row in rows:
-
-            if row[4] == asset:
-
-                return {
-                    "buyer": row[3],
-                    "price": float(row[6]),
-                    "tx": row[7]
-                }
-
-    return None
+    return {
+        "buyer": r[3],
+        "price": float(r[6]),
+        "tx": r[7]
+    }
 
 
-# -------- FLOOR --------
+def floor(asset):
 
-def scan_dispensers(asset):
+    url = f"https://tokenscan.io/explorer/dispensers?asset={asset}&start=0&length=50"
+
+    rows = requests.get(url).json()["data"]
+
+    if not rows:
+        return None
 
     best = None
 
-    for page in range(30):
+    for r in rows:
 
-        start = page * 100
+        price = float(r[6])
 
-        url = f"https://tokenscan.io/explorer/dispensers?start={start}&length=100"
+        if best is None or price < best["price"]:
 
-        rows = requests.get(url).json()["data"]
-
-        for row in rows:
-
-            if row[4] != asset:
-                continue
-
-            price = float(row[6])
-
-            if best is None or price < best["price"]:
-
-                best = {
-                    "price": price,
-                    "seller": row[3],
-                    "tx": row[8]
-                }
+            best = {
+                "price": price,
+                "seller": r[3],
+                "tx": r[8]
+            }
 
     return best
 
 
-# -------- MARKET --------
+def market(asset):
 
-def scan_orders(asset):
+    url = f"https://tokenscan.io/explorer/orders?asset={asset}&start=0&length=50"
+
+    rows = requests.get(url).json()["data"]
+
+    if not rows:
+        return None
 
     best = None
 
-    for page in range(30):
+    for r in rows:
 
-        start = page * 100
+        give_qty = float(r[3])
+        get_qty = float(r[5])
 
-        url = f"https://tokenscan.io/explorer/orders?start={start}&length=100"
+        price = get_qty / give_qty
 
-        rows = requests.get(url).json()["data"]
+        if best is None or price < best["price"]:
 
-        for row in rows:
-
-            give_asset = row[4]
-            get_asset = row[6]
-
-            if give_asset != asset and get_asset != asset:
-                continue
-
-            give_qty = float(row[3])
-            get_qty = float(row[5])
-
-            price = get_qty / give_qty
-
-            if best is None or price < best["price"]:
-
-                best = {
-                    "price": price,
-                    "tx": row[9]
-                }
+            best = {
+                "price": price,
+                "tx": r[9]
+            }
 
     return best
-
-
-# -------- COMMANDS --------
-
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    text = (
-        "🐦 Rare Pigeons Bot\n\n"
-        "/pigeon ASSET\n"
-        "/random\n\n"
-        "/ls ASSET\n"
-        "/floor ASSET\n"
-        "/market ASSET"
-    )
-
-    await update.message.reply_text(text)
-
-
-async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    asset = context.args[0].upper()
-
-    if asset not in ASSETS:
-
-        await update.message.reply_text("Unknown pigeon")
-        return
-
-    await update.message.reply_photo(ASSETS[asset])
-
-
-async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    asset = random.choice(ASSET_LIST)
-
-    await update.message.reply_photo(ASSETS[asset], caption=asset)
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = scan_dispenses(asset)
+    data = last_sale(asset)
 
     if not data:
-
         await update.message.reply_text("No sales found")
         return
 
-    caption = f"""🐦 LAST SALE
+    text = f"""
+🐦 LAST SALE
 
 {asset}
 
 Price
-{data["price"]:.8f} BTC
+{data['price']:.8f} BTC
 
 Buyer
-{data["buyer"]}
+{data['buyer']}
 
-https://tokenscan.io/tx/{data["tx"]}
+https://tokenscan.io/tx/{data['tx']}
 """
 
-    await update.message.reply_photo(ASSETS[asset], caption=caption)
+    await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
-async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def floor_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = scan_dispensers(asset)
+    data = floor(asset)
 
     if not data:
-
         await update.message.reply_text("No listings")
         return
 
-    caption = f"""🐦 {asset} FLOOR
+    text = f"""
+🐦 {asset} FLOOR
 
 Price
-{data["price"]:.8f} BTC
+{data['price']:.8f} BTC
 
 Seller
-{data["seller"]}
+{data['seller']}
 
-https://tokenscan.io/tx/{data["tx"]}
+https://tokenscan.io/tx/{data['tx']}
 """
 
-    await update.message.reply_photo(ASSETS[asset], caption=caption)
+    await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
-async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def market_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = scan_orders(asset)
+    data = market(asset)
 
     if not data:
-
         await update.message.reply_text("No orders")
         return
 
-    caption = f"""🐦 {asset} MARKET
+    text = f"""
+🐦 {asset} MARKET
 
 Best order
 
-{data["price"]:.2f} XCP
+{data['price']:.2f} XCP
 
-https://tokenscan.io/tx/{data["tx"]}
+https://tokenscan.io/tx/{data['tx']}
 """
 
-    await update.message.reply_photo(ASSETS[asset], caption=caption)
+    await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
-# -------- MAIN --------
+async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    asset = random.choice(ASSET_LIST)
+
+    await update.message.reply_photo(ASSETS[asset], caption=asset)
+
 
 def main():
 
-    print("Rare Pigeons bot running")
-
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CommandHandler("pigeon", pigeon))
-    app.add_handler(CommandHandler("random", random_pigeon))
-
     app.add_handler(CommandHandler("ls", ls))
-    app.add_handler(CommandHandler("floor", floor))
-    app.add_handler(CommandHandler("market", market))
+    app.add_handler(CommandHandler("floor", floor_cmd))
+    app.add_handler(CommandHandler("market", market_cmd))
+    app.add_handler(CommandHandler("random", random_card))
 
     app.run_polling()
 
