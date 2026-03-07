@@ -104,7 +104,7 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for row in r["data"]:
 
-            a = clean(row[4])
+            a = clean(row[5])
 
             if a == asset:
 
@@ -190,7 +190,7 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = 0
 
 
-    # BTC dispenser
+    # dispenser sales
 
     for start in range(0,SCAN,STEP):
 
@@ -198,7 +198,7 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         for row in r["data"]:
 
-            a = clean(row[4])
+            a = clean(row[5])
 
             if a == asset:
 
@@ -218,7 +218,7 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
 
-    # XCP DEX
+    # dex sales
 
     for start in range(0,SCAN,STEP):
 
@@ -312,7 +312,7 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 price = float(row[6])
 
-                dispenser = row[7]
+                dispenser = row[9]
 
                 floors.append({
                     "price": price,
