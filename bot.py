@@ -13,6 +13,9 @@ ORDERS = "https://cp20.tokenscan.io/explorer/orders"
 DISPENSES = "https://cp20.tokenscan.io/explorer/dispenses"
 DISPENSERS = "https://cp20.tokenscan.io/explorer/dispensers"
 
+SCAN = 2000
+STEP = 100
+
 
 def clean(x):
     return str(x).replace("|", "")
@@ -23,6 +26,7 @@ def get_cards():
 
 
 def get_card(asset):
+
     cards = get_cards()
 
     for c in cards:
@@ -42,6 +46,7 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
         card = random.choice(cards)
+
     else:
 
         asset = context.args[0].upper()
@@ -85,12 +90,12 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
     image = card["image"] if card else None
 
 
-    # DISPENSER SALES
-    r = requests.get(f"{DISPENSES}?search={asset}").json()
+    # FAST CHECK (first page)
+    r = requests.get(f"{DISPENSES}?start=0&length=100").json()
 
     for row in r["data"]:
 
-        if clean(row[5]) == asset:
+        if clean(row[4]) == asset:
 
             price = float(row[6])
             tx = row[7]
@@ -112,36 +117,33 @@ https://cp20.tokenscan.io/tx/{tx}
             return
 
 
-    # DEX SALES
-    r = requests.get(f"{ORDERS}?search={asset}").json()
+    # FULL SCAN IF NEEDED
+    for start in range(100, SCAN, STEP):
 
-    for row in r["data"]:
+        r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
-        give_asset = clean(row[4])
-        status = row[7]
+        for row in r["data"]:
 
-        if status == "filled" and give_asset == asset:
+            if clean(row[4]) == asset:
 
-            give = float(row[3])
-            get = float(row[5])
-            price = get / give
-            tx = row[8]
+                price = float(row[6])
+                tx = row[7]
 
-            text = f"""🐦 LAST SALE
+                text = f"""🐦 LAST SALE
 
 {asset}
 
-{price:.8f} XCP
+{price:.8f} BTC
 
 https://cp20.tokenscan.io/tx/{tx}
 """
 
-            if image:
-                await update.message.reply_photo(photo=image, caption=text)
-            else:
-                await update.message.reply_text(text)
+                if image:
+                    await update.message.reply_photo(photo=image, caption=text)
+                else:
+                    await update.message.reply_text(text)
 
-            return
+                return
 
     await update.message.reply_text("No sales found")
 
@@ -164,43 +166,47 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     floors = []
 
 
-    # DISPENSERS
-    r = requests.get(f"{DISPENSERS}?search={asset}").json()
+    # DISPENSER FLOOR
+    for start in range(0, SCAN, STEP):
 
-    for row in r["data"]:
+        r = requests.get(f"{DISPENSERS}?start={start}&length={STEP}").json()
 
-        if clean(row[4]) == asset:
+        for row in r["data"]:
 
-            price = float(row[6])
-            tx = row[8]
+            if clean(row[4]) == asset:
 
-            floors.append({
-                "price": price,
-                "type": "BTC",
-                "link": f"https://cp20.tokenscan.io/tx/{tx}"
-            })
+                price = float(row[6])
+                tx = row[8]
+
+                floors.append({
+                    "price": price,
+                    "type": "BTC",
+                    "link": f"https://cp20.tokenscan.io/tx/{tx}"
+                })
 
 
-    # DEX ORDERS
-    r = requests.get(f"{ORDERS}?search={asset}").json()
+    # DEX FLOOR
+    for start in range(0, SCAN, STEP):
 
-    for row in r["data"]:
+        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
-        give_asset = clean(row[4])
-        status = row[7]
+        for row in r["data"]:
 
-        if status == "open" and give_asset == asset:
+            give_asset = clean(row[4])
+            status = row[7]
 
-            give = float(row[3])
-            get = float(row[5])
-            price = get / give
-            tx = row[8]
+            if status == "open" and give_asset == asset:
 
-            floors.append({
-                "price": price,
-                "type": "XCP",
-                "link": f"https://cp20.tokenscan.io/tx/{tx}"
-            })
+                give = float(row[3])
+                get = float(row[5])
+                price = get / give
+                tx = row[8]
+
+                floors.append({
+                    "price": price,
+                    "type": "XCP",
+                    "link": f"https://cp20.tokenscan.io/tx/{tx}"
+                })
 
 
     if not floors:
@@ -241,34 +247,36 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
     best_sell = None
 
 
-    r = requests.get(f"{ORDERS}?search={asset}").json()
+    for start in range(0, SCAN, STEP):
 
-    for row in r["data"]:
+        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
-        give_asset = clean(row[4])
-        get_asset = clean(row[6])
-        status = row[7]
+        for row in r["data"]:
 
-        if status != "open":
-            continue
+            give_asset = clean(row[4])
+            get_asset = clean(row[6])
+            status = row[7]
 
-        give = float(row[3])
-        get = float(row[5])
-        tx = row[8]
+            if status != "open":
+                continue
 
-        if give_asset == asset:
+            give = float(row[3])
+            get = float(row[5])
+            tx = row[8]
 
-            price = get / give
+            if give_asset == asset:
 
-            if best_sell is None or price < best_sell["price"]:
-                best_sell = {"price": price, "tx": tx}
+                price = get / give
 
-        if get_asset == asset:
+                if best_sell is None or price < best_sell["price"]:
+                    best_sell = {"price": price, "tx": tx}
 
-            price = give / get
+            if get_asset == asset:
 
-            if best_buy is None or price > best_buy["price"]:
-                best_buy = {"price": price, "tx": tx}
+                price = give / get
+
+                if best_buy is None or price > best_buy["price"]:
+                    best_buy = {"price": price, "tx": tx}
 
 
     text = f"🐦 {asset} MARKET\n\n"
