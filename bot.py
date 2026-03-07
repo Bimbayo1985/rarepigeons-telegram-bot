@@ -1,100 +1,142 @@
 import requests
-import random
+import time
 import os
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.environ["BOT_TOKEN"]
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+CHAT_ID = "-1003513082996"
 
 JSON_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
+DISPENSES_URL = "https://tokenscan.io/explorer/dispenses?start=0&length=20"
+DISPENSERS_URL = "https://tokenscan.io/explorer/dispensers?start=0&length=20"
+ORDERS_URL = "https://tokenscan.io/explorer/orders?start=0&length=20"
 
-async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if update.message is None:
-        return
+def send_photo(image, caption):
+
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+
+    requests.post(url, data={
+        "chat_id": CHAT_ID,
+        "photo": image,
+        "caption": caption
+    })
+
+
+def load_assets():
+
+    data = requests.get(JSON_URL).json()
+
+    return {c["asset"]: c["image"] for c in data["cards"]}
+
+
+assets = load_assets()
+
+last_dispense = 0
+last_dispenser = 0
+last_order = 0
+
+print("Rare Pigeons watcher started")
+
+
+while True:
 
     try:
-        data = requests.get(JSON_URL).json()
-        cards = data["cards"]
-    except:
-        await update.message.reply_text("Error loading pigeons 🐦")
-        return
 
-    # якщо команда без аргументів → random карта
-    if len(context.args) == 0:
-        card = random.choice(cards)
+        r = requests.get(DISPENSES_URL).json()
 
-    else:
-        name = context.args[0].upper()
-        card = None
+        for row in r["data"]:
 
-        for c in cards:
-            if c["asset"] == name:
-                card = c
+            event_id = row[0]
+
+            if event_id <= last_dispense:
                 break
 
-        if card is None:
-            await update.message.reply_text("Pigeon not found 🐦")
-            return
+            asset = row[4]
 
-    asset = card["asset"]
-    image = card["image"]
+            if asset in assets:
 
-    caption = f"""
-🐦 {asset}
+                price = row[6]
+                tx = row[7]
 
-Rare Pigeons card
+                caption = f"""
+🐦 SOLD
 
-View collection:
-https://www.rarepigeons.com
+{asset}
+
+{price} BTC
+
+https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_photo(photo=image, caption=caption)
+                send_photo(assets[asset], caption)
 
+            last_dispense = event_id
 
-async def randompigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        r = requests.get(DISPENSERS_URL).json()
 
-    if update.message is None:
-        return
+        for row in r["data"]:
 
-    try:
-        data = requests.get(JSON_URL).json()
-        cards = data["cards"]
-    except:
-        await update.message.reply_text("Error loading pigeons 🐦")
-        return
+            event_id = row[0]
 
-    card = random.choice(cards)
+            if event_id <= last_dispenser:
+                break
 
-    asset = card["asset"]
-    image = card["image"]
+            asset = row[4]
 
-    caption = f"""
-🐦 {asset}
+            if asset in assets:
 
-Random Rare Pigeon
-https://www.rarepigeons.com
+                price = row[6]
+
+                caption = f"""
+🟡 LISTED
+
+{asset}
+
+{price} BTC
 """
 
-    await update.message.reply_photo(photo=image, caption=caption)
+                send_photo(assets[asset], caption)
 
+            last_dispenser = event_id
 
-# тимчасова команда для отримання chat_id
-async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        r = requests.get(ORDERS_URL).json()
 
-    if update.message is None:
-        return
+        for row in r["data"]:
 
-    await update.message.reply_text(f"Chat ID: {update.effective_chat.id}")
+            event_id = row[0]
 
+            if event_id <= last_order:
+                break
 
-app = ApplicationBuilder().token(TOKEN).build()
+            give_asset = row[4]
+            get_asset = row[6]
+            status = row[7]
 
-app.add_handler(CommandHandler("pigeon", pigeon))
-app.add_handler(CommandHandler("random", randompigeon))
-app.add_handler(CommandHandler("chatid", chatid))
+            asset = None
 
-print("Rare Pigeons bot started 🐦")
+            if give_asset in assets:
+                asset = give_asset
+                event = "SELL ORDER"
 
-app.run_polling()
+            elif get_asset in assets:
+                asset = get_asset
+                event = "BUY ORDER"
+
+            if asset:
+
+                caption = f"""
+🔵 {event}
+
+{asset}
+"""
+
+                send_photo(assets[asset], caption)
+
+            last_order = event_id
+
+    except Exception as e:
+
+        print("Error:", e)
+
+    time.sleep(20)
