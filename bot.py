@@ -1,6 +1,7 @@
 import requests
 import random
 import os
+from bs4 import BeautifulSoup
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -8,17 +9,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
-
-ORDERS = "https://cp20.tokenscan.io/explorer/orders"
-DISPENSES = "https://cp20.tokenscan.io/explorer/dispenses"
-DISPENSERS = "https://cp20.tokenscan.io/explorer/dispensers"
-
-SCAN = 20000
-STEP = 200
-
-
-def clean(x):
-    return str(x).replace("|","")
 
 
 def get_cards():
@@ -36,9 +26,51 @@ def get_card(asset):
     return None
 
 
-# ------------------------------------------------
-# CARD
-# ------------------------------------------------
+def get_asset_page(asset):
+
+    url = f"https://cp20.tokenscan.io/asset/{asset}"
+    r = requests.get(url)
+
+    return BeautifulSoup(r.text, "html.parser")
+
+
+def find_table(soup, title):
+
+    headers = soup.find_all("h4")
+
+    for h in headers:
+        if title.lower() in h.text.lower():
+            table = h.find_next("table")
+            return table
+
+    return None
+
+
+def parse_rows(table):
+
+    rows = table.find_all("tr")
+
+    data = []
+
+    for r in rows[1:]:
+
+        cols = [c.text.strip() for c in r.find_all("td")]
+
+        links = r.find_all("a")
+
+        link = None
+
+        for a in links:
+            if "/tx/" in a.get("href",""):
+                link = "https://cp20.tokenscan.io" + a.get("href")
+
+        data.append((cols,link))
+
+    return data
+
+
+# ---------------- CARD ----------------
+
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -73,9 +105,8 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ------------------------------------------------
-# LAST SALE
-# ------------------------------------------------
+# ---------------- LAST SALE ----------------
+
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -85,43 +116,44 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
+    soup = get_asset_page(asset)
+
+    table = find_table(soup,"Dispenses")
+
+    if not table:
+        await update.message.reply_text("No sales found")
+        return
+
+    rows = parse_rows(table)
+
+    if not rows:
+        await update.message.reply_text("No sales found")
+        return
+
+    cols,link = rows[0]
+
+    price = cols[-1]
+
     card = get_card(asset)
     image = card["image"] if card else None
 
-
-    for start in range(0,SCAN,STEP):
-
-        r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
-
-        for row in r["data"]:
-
-            if clean(row[4]) == asset:
-
-                price = float(row[6])
-                tx = row[7]
-
-                text = f"""🐦 LAST SALE
+    text = f"""🐦 LAST SALE
 
 {asset}
 
-{price:.8f} BTC
+{price}
 
-https://cp20.tokenscan.io/tx/{tx}
+{link}
 """
 
-                if image:
-                    await update.message.reply_photo(photo=image, caption=text)
-                else:
-                    await update.message.reply_text(text)
-
-                return
-
-    await update.message.reply_text("No sales found")
+    if image:
+        await update.message.reply_photo(photo=image,caption=text)
+    else:
+        await update.message.reply_text(text)
 
 
-# ------------------------------------------------
-# FLOOR
-# ------------------------------------------------
+# ---------------- FLOOR ----------------
+
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -131,66 +163,78 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
+    soup = get_asset_page(asset)
+
+    dispenser_floor = None
+    dispenser_link = None
+
+    dex_floor = None
+    dex_link = None
+
+
+    # DISPENSERS
+
+    table = find_table(soup,"Dispensers")
+
+    if table:
+
+        rows = parse_rows(table)
+
+        for cols,link in rows:
+
+            price = cols[-1].split()[0]
+
+            p = float(price)
+
+            if dispenser_floor is None or p < dispenser_floor:
+
+                dispenser_floor = p
+                dispenser_link = link
+
+
+    # ORDERS
+
+    table = find_table(soup,"Orders")
+
+    if table:
+
+        rows = parse_rows(table)
+
+        for cols,link in rows:
+
+            try:
+
+                price = float(cols[-1])
+
+                if dex_floor is None or price < dex_floor:
+
+                    dex_floor = price
+                    dex_link = link
+
+            except:
+                pass
+
+
     card = get_card(asset)
     image = card["image"] if card else None
 
-    floors = []
+    text = f"🐦 {asset} FLOOR\n\n"
 
+    if dispenser_floor:
 
-    for start in range(0,SCAN,STEP):
+        text += f"""Dispenser
+{dispenser_floor} BTC
+{dispenser_link}
 
-        r = requests.get(f"{DISPENSERS}?start={start}&length={STEP}").json()
-
-        for row in r["data"]:
-
-            if clean(row[4]) == asset:
-
-                price = float(row[6])
-                tx = row[8]
-
-                floors.append({
-                    "price":price,
-                    "type":"BTC",
-                    "link":f"https://cp20.tokenscan.io/tx/{tx}"
-                })
-
-
-    for start in range(0,SCAN,STEP):
-
-        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
-
-        for row in r["data"]:
-
-            give_asset = clean(row[4])
-            status = row[7]
-
-            if status == "open" and give_asset == asset:
-
-                give = float(row[3])
-                get = float(row[5])
-
-                price = get/give
-                tx = row[8]
-
-                floors.append({
-                    "price":price,
-                    "type":"XCP",
-                    "link":f"https://cp20.tokenscan.io/tx/{tx}"
-                })
-
-
-    if not floors:
-        await update.message.reply_text("No listings")
-        return
-
-    best = min(floors,key=lambda x:x["price"])
-
-    text = f"""🐦 {asset} FLOOR
-
-{best['price']:.8f} {best['type']}
-
-{best['link']}
 """
+
+    if dex_floor:
+
+        text += f"""DEX
+{dex_floor} XCP
+{dex_link}
+"""
+
 
     if image:
         await update.message.reply_photo(photo=image,caption=text)
@@ -198,9 +242,8 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text)
 
 
-# ------------------------------------------------
-# MARKET
-# ------------------------------------------------
+# ---------------- MARKET ----------------
+
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -210,54 +253,64 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    card = get_card(asset)
-    image = card["image"] if card else None
+    soup = get_asset_page(asset)
+
+    table = find_table(soup,"Orders")
+
+    if not table:
+        await update.message.reply_text("No orders")
+        return
+
+    rows = parse_rows(table)
 
     best_buy = None
     best_sell = None
 
-
-    for start in range(0,SCAN,STEP):
-
-        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
-
-        for row in r["data"]:
-
-            give_asset = clean(row[4])
-            get_asset = clean(row[6])
-            status = row[7]
-
-            if status != "open":
-                continue
-
-            give = float(row[3])
-            get = float(row[5])
-            tx = row[8]
+    buy_link = None
+    sell_link = None
 
 
-            if give_asset == asset:
+    for cols,link in rows:
 
-                price = get/give
+        pair = cols[1]
 
-                if best_sell is None or price < best_sell["price"]:
-                    best_sell = {"price":price,"tx":tx}
+        price = float(cols[-1])
+
+        if pair.startswith(asset):
+
+            if best_sell is None or price < best_sell:
+
+                best_sell = price
+                sell_link = link
+
+        if pair.endswith(asset):
+
+            if best_buy is None or price > best_buy:
+
+                best_buy = price
+                buy_link = link
 
 
-            if get_asset == asset:
-
-                price = give/get
-
-                if best_buy is None or price > best_buy["price"]:
-                    best_buy = {"price":price,"tx":tx}
-
+    card = get_card(asset)
+    image = card["image"] if card else None
 
     text = f"🐦 {asset} MARKET\n\n"
 
     if best_sell:
-        text += f"Best SELL\n{best_sell['price']:.8f} XCP\nhttps://cp20.tokenscan.io/tx/{best_sell['tx']}\n\n"
+
+        text += f"""Best SELL
+{best_sell} XCP
+{sell_link}
+
+"""
 
     if best_buy:
-        text += f"Best BUY\n{best_buy['price']:.8f} XCP\nhttps://cp20.tokenscan.io/tx/{best_buy['tx']}"
+
+        text += f"""Best BUY
+{best_buy} XCP
+{buy_link}
+"""
+
 
     if image:
         await update.message.reply_photo(photo=image,caption=text)
@@ -265,9 +318,8 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text)
 
 
-# ------------------------------------------------
-# MENU
-# ------------------------------------------------
+# ---------------- MENU ----------------
+
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
