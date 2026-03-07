@@ -51,9 +51,7 @@ while True:
 
     try:
 
-        # ----------------------------------
-        # 1️⃣ DISPENSER SALES
-        # ----------------------------------
+        # DISPENSER SALES
 
         r = requests.get(DISPENSES_URL).json()
 
@@ -91,9 +89,7 @@ https://tokenscan.io/tx/{tx}
             last_dispense = event_id
 
 
-        # ----------------------------------
-        # 2️⃣ DISPENSER CREATED
-        # ----------------------------------
+        # DISPENSER CREATED
 
         r = requests.get(DISPENSERS_URL).json()
 
@@ -128,9 +124,7 @@ Seller
             last_dispenser = event_id
 
 
-        # ----------------------------------
-        # 3️⃣ DEX EVENTS
-        # ----------------------------------
+        # DEX EVENTS
 
         r = requests.get(ORDERS_URL).json()
 
@@ -154,7 +148,6 @@ Seller
             price = None
 
 
-            # SELL ORDER
             if give_asset in assets:
 
                 asset = give_asset
@@ -167,7 +160,6 @@ Seller
                     event = "🔥 DEX SALE"
 
 
-            # BUY ORDER
             elif get_asset in assets:
 
                 asset = get_asset
