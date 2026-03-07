@@ -5,6 +5,7 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
@@ -15,9 +16,11 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
+# -------- LAST SALE --------
+
 def scan_dispenses(asset):
 
-    for page in range(20):
+    for page in range(30):
 
         start = page * 100
 
@@ -27,7 +30,7 @@ def scan_dispenses(asset):
 
         for row in rows:
 
-            if row[5] == asset:
+            if row[4] == asset:
 
                 return {
                     "buyer": row[3],
@@ -38,11 +41,13 @@ def scan_dispenses(asset):
     return None
 
 
+# -------- FLOOR --------
+
 def scan_dispensers(asset):
 
     best = None
 
-    for page in range(20):
+    for page in range(30):
 
         start = page * 100
 
@@ -52,7 +57,7 @@ def scan_dispensers(asset):
 
         for row in rows:
 
-            if row[5] != asset:
+            if row[4] != asset:
                 continue
 
             price = float(row[6])
@@ -68,11 +73,13 @@ def scan_dispensers(asset):
     return best
 
 
+# -------- MARKET --------
+
 def scan_orders(asset):
 
     best = None
 
-    for page in range(20):
+    for page in range(30):
 
         start = page * 100
 
@@ -91,7 +98,7 @@ def scan_orders(asset):
             give_qty = float(row[3])
             get_qty = float(row[5])
 
-            price = (get_qty / give_qty) * 1000
+            price = get_qty / give_qty
 
             if best is None or price < best["price"]:
 
@@ -102,6 +109,8 @@ def scan_orders(asset):
 
     return best
 
+
+# -------- COMMANDS --------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -210,6 +219,8 @@ https://tokenscan.io/tx/{data["tx"]}
 
     await update.message.reply_photo(ASSETS[asset], caption=caption)
 
+
+# -------- MAIN --------
 
 def main():
 
