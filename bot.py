@@ -6,80 +6,83 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
+BASE = "https://cp20.tokenscan.io/asset/"
 
-def get_asset_page(asset):
-    url = f"https://cp20.tokenscan.io/asset/{asset}"
-    r = requests.get(url, timeout=20)
+# -------- helpers --------
+
+def get_page(asset):
+    r = requests.get(BASE + asset, timeout=20)
     if r.status_code != 200:
         return None
     return BeautifulSoup(r.text, "lxml")
 
-
-def get_image(soup):
+def get_card_image(soup):
     img = soup.select_one("img")
     if img:
-        return img["src"]
+        return img.get("src")
     return None
 
-
-def parse_floor(soup):
-
-    btc_floor = None
+def find_value(soup, label):
 
     rows = soup.find_all("tr")
-    for r in rows:
-        t = r.get_text(" ", strip=True)
 
-        if "BTC Floor" in t:
-            parts = t.split()
+    for r in rows:
+        txt = r.get_text(" ", strip=True)
+
+        if label in txt:
+            parts = txt.split()
+
             for p in parts:
                 if "0.000" in p:
-                    btc_floor = p
-                    break
-
-    return btc_floor
-
-
-def parse_orders(soup):
-
-    orders = []
-
-    rows = soup.find_all("tr")
-
-    for r in rows:
-        txt = r.get_text(" ", strip=True)
-
-        if "Selling" in txt or "Buying" in txt:
-            continue
-
-        if "BTC" in txt and "XCP" not in txt:
-            parts = txt.split()
-
-            for p in parts:
-                if p.startswith("0.000"):
-                    orders.append(p)
-
-    if orders:
-        return min(orders)
-
-    return None
-
-
-def parse_sales(soup):
-
-    rows = soup.find_all("tr")
-
-    for r in rows:
-        txt = r.get_text(" ", strip=True)
-
-        if "BTC Paid" in txt:
-            parts = txt.split()
-
-            for p in parts:
-                if p.startswith("0.000"):
                     return p
 
     return None
+
+
+# -------- commands --------
+
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    text = (
+        "🐦 Rare Pigeons Bot\n\n"
+        "/pigeon ASSET\n"
+        "/random\n\n"
+        "/ls ASSET\n"
+        "/floor ASSET\n"
+        "/market ASSET"
+    )
+
+    await update.message.reply_text(text)
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await menu(update, context)
+
+
+async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not context.args:
+        return
+
+    asset = context.args[0].upper()
+
+    soup = get_page(asset)
+
+    if not soup:
+        await update.message.reply_text("Asset not found")
+        return
+
+    img = get_card_image(soup)
+
+    if img:
+        await update.message.reply_photo(photo=img)
+    else:
+        await update.message.reply_text(asset)
+
+
+async def random(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    await update.message.reply_text("Random feature not implemented yet")
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,29 +92,33 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_asset_page(asset)
+    soup = get_page(asset)
 
     if not soup:
         await update.message.reply_text("Asset not found")
         return
 
-    price = parse_sales(soup)
+    price = find_value(soup, "BTC Paid")
 
     if not price:
         await update.message.reply_text("No sales found")
         return
 
-    img = get_image(soup)
+    img = get_card_image(soup)
 
-    url = f"https://cp20.tokenscan.io/asset/{asset}"
+    caption = f"""🐦 LAST SALE
+
+{asset}
+
+{price} BTC
+
+https://cp20.tokenscan.io/asset/{asset}
+"""
 
     if img:
-        await update.message.reply_photo(
-            photo=img,
-            caption=f"🐦 LAST SALE\n\n{asset}\n\n{price} BTC\n{url}",
-        )
+        await update.message.reply_photo(photo=img, caption=caption)
     else:
-        await update.message.reply_text(f"{asset}\n{price} BTC\n{url}")
+        await update.message.reply_text(caption)
 
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -121,29 +128,31 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_asset_page(asset)
+    soup = get_page(asset)
 
     if not soup:
         await update.message.reply_text("Asset not found")
         return
 
-    price = parse_floor(soup)
+    price = find_value(soup, "BTC Floor")
 
     if not price:
         await update.message.reply_text("No listings")
         return
 
-    img = get_image(soup)
+    img = get_card_image(soup)
 
-    url = f"https://cp20.tokenscan.io/asset/{asset}"
+    caption = f"""🐦 {asset} FLOOR
+
+{price} BTC
+
+https://cp20.tokenscan.io/asset/{asset}
+"""
 
     if img:
-        await update.message.reply_photo(
-            photo=img,
-            caption=f"🐦 {asset} FLOOR\n\n{price} BTC\n{url}",
-        )
+        await update.message.reply_photo(photo=img, caption=caption)
     else:
-        await update.message.reply_text(f"{asset} floor\n{price} BTC")
+        await update.message.reply_text(caption)
 
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -153,53 +162,56 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_asset_page(asset)
+    soup = get_page(asset)
 
     if not soup:
         await update.message.reply_text("Asset not found")
         return
 
-    price = parse_orders(soup)
+    price = find_value(soup, "Selling")
 
     if not price:
         await update.message.reply_text("No orders")
         return
 
-    img = get_image(soup)
+    img = get_card_image(soup)
 
-    url = f"https://cp20.tokenscan.io/asset/{asset}"
+    caption = f"""🐦 {asset} MARKET
+
+Best SELL
+
+{price} BTC
+
+https://cp20.tokenscan.io/asset/{asset}
+"""
 
     if img:
-        await update.message.reply_photo(
-            photo=img,
-            caption=f"🐦 {asset} MARKET\n\nBest SELL\n{price} BTC\n{url}",
-        )
+        await update.message.reply_photo(photo=img, caption=caption)
     else:
-        await update.message.reply_text(f"{asset}\nBest SELL {price} BTC")
+        await update.message.reply_text(caption)
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    await update.message.reply_text(
-        "🐦 Rare Pigeons Bot\n\n"
-        "/ls ASSET\n"
-        "/floor ASSET\n"
-        "/market ASSET"
-    )
-
+# -------- main --------
 
 def main():
+
+    print("Starting Rare Pigeons bot")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu))
+
+    app.add_handler(CommandHandler("pigeon", pigeon))
+    app.add_handler(CommandHandler("random", random))
+
     app.add_handler(CommandHandler("ls", ls))
     app.add_handler(CommandHandler("floor", floor))
     app.add_handler(CommandHandler("market", market))
 
     print("Rare Pigeons bot running")
 
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
