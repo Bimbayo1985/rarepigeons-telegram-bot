@@ -17,12 +17,8 @@ SCAN = 2000
 STEP = 100
 
 
-# ------------------------------------------------
-# HELPERS
-# ------------------------------------------------
-
 def clean(x):
-    return str(x).replace("|","")
+    return str(x).replace("|", "")
 
 
 def get_cards():
@@ -30,19 +26,12 @@ def get_cards():
 
 
 def get_card(asset):
-
     cards = get_cards()
-
     for c in cards:
         if c["asset"] == asset:
             return c
-
     return None
 
-
-# ------------------------------------------------
-# CARD
-# ------------------------------------------------
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -51,9 +40,7 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         card = random.choice(cards)
     else:
-
         asset = context.args[0].upper()
-
         card = get_card(asset)
 
         if not card:
@@ -69,7 +56,6 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cards = get_cards()
-
     card = random.choice(cards)
 
     await update.message.reply_photo(
@@ -78,10 +64,6 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ------------------------------------------------
-# LAST SALE
-# ------------------------------------------------
-
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
@@ -89,20 +71,17 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     asset = context.args[0].upper()
-
     card = get_card(asset)
     image = card["image"] if card else None
 
 
-    # DISPENSER SALES
-
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            a = clean(row[5])
+            a = clean(row[4])
 
             if a == asset:
 
@@ -126,9 +105,7 @@ https://cp20.tokenscan.io/tx/{tx}
                 return
 
 
-    # DEX SALES
-
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
@@ -141,8 +118,7 @@ https://cp20.tokenscan.io/tx/{tx}
 
                 give = float(row[3])
                 get = float(row[5])
-                price = get/give
-
+                price = get / give
                 tx = row[8]
 
                 text = f"""🐦 LAST SALE
@@ -164,10 +140,6 @@ https://cp20.tokenscan.io/tx/{tx}
     await update.message.reply_text("No sales found")
 
 
-# ------------------------------------------------
-# SALES
-# ------------------------------------------------
-
 async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
@@ -175,7 +147,6 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     asset = context.args[0].upper()
-
     card = get_card(asset)
     image = card["image"] if card else None
 
@@ -183,37 +154,32 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = 0
 
 
-    # DISPENSER SALES
-
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            a = clean(row[5])
+            a = clean(row[4])
 
             if a == asset:
 
                 price = float(row[6])
+                tx = row[7]
 
-                text += f"{price:.8f} BTC\n"
+                text += f"{price:.8f} BTC\nhttps://cp20.tokenscan.io/tx/{tx}\n\n"
 
                 count += 1
 
                 if count == 10:
-
                     if image:
                         await update.message.reply_photo(photo=image, caption=text)
                     else:
                         await update.message.reply_text(text)
-
                     return
 
 
-    # DEX SALES
-
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
@@ -226,27 +192,22 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 give = float(row[3])
                 get = float(row[5])
-                price = get/give
+                price = get / give
+                tx = row[8]
 
-                text += f"{price:.8f} XCP\n"
+                text += f"{price:.8f} XCP\nhttps://cp20.tokenscan.io/tx/{tx}\n\n"
 
                 count += 1
 
                 if count == 10:
-
                     if image:
                         await update.message.reply_photo(photo=image, caption=text)
                     else:
                         await update.message.reply_text(text)
-
                     return
 
     await update.message.reply_text("No sales found")
 
-
-# ------------------------------------------------
-# FLOOR
-# ------------------------------------------------
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -255,16 +216,13 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     asset = context.args[0].upper()
-
     card = get_card(asset)
     image = card["image"] if card else None
 
     floors = []
 
 
-    # DEX FLOOR
-
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
@@ -277,8 +235,7 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 give = float(row[3])
                 get = float(row[5])
-                price = get/give
-
+                price = get / give
                 tx = row[8]
 
                 floors.append({
@@ -288,9 +245,7 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
 
 
-    # DISPENSER FLOOR
-
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{DISPENSERS}?start={start}&length={STEP}").json()
 
@@ -314,7 +269,6 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No listings")
         return
 
-
     best = min(floors, key=lambda x: x["price"])
 
     text = f"""🐦 {asset} FLOOR
@@ -330,10 +284,6 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text)
 
 
-# ------------------------------------------------
-# MARKET
-# ------------------------------------------------
-
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
@@ -341,7 +291,6 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     asset = context.args[0].upper()
-
     card = get_card(asset)
     image = card["image"] if card else None
 
@@ -349,7 +298,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
     best_sell = None
 
 
-    for start in range(0,SCAN,STEP):
+    for start in range(0, SCAN, STEP):
 
         r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
@@ -368,40 +317,32 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if give_asset == asset:
 
-                price = get/give
+                price = get / give
 
                 if best_sell is None or price < best_sell["price"]:
-                    best_sell = {"price":price,"tx":tx}
+                    best_sell = {"price": price, "tx": tx}
 
             if get_asset == asset:
 
-                price = give/get
+                price = give / get
 
                 if best_buy is None or price > best_buy["price"]:
-                    best_buy = {"price":price,"tx":tx}
+                    best_buy = {"price": price, "tx": tx}
 
 
     text = f"🐦 {asset} MARKET\n\n"
 
     if best_sell:
-
-        text += f"Best SELL\n{best_sell['price']:.8f} XCP\n"
-        text += f"https://cp20.tokenscan.io/tx/{best_sell['tx']}\n\n"
+        text += f"Best SELL\n{best_sell['price']:.8f} XCP\nhttps://cp20.tokenscan.io/tx/{best_sell['tx']}\n\n"
 
     if best_buy:
-
-        text += f"Best BUY\n{best_buy['price']:.8f} XCP\n"
-        text += f"https://cp20.tokenscan.io/tx/{best_buy['tx']}"
+        text += f"Best BUY\n{best_buy['price']:.8f} XCP\nhttps://cp20.tokenscan.io/tx/{best_buy['tx']}"
 
     if image:
         await update.message.reply_photo(photo=image, caption=text)
     else:
         await update.message.reply_text(text)
 
-
-# ------------------------------------------------
-# MENU
-# ------------------------------------------------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -418,10 +359,6 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
     )
 
-
-# ------------------------------------------------
-# RUN
-# ------------------------------------------------
 
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
