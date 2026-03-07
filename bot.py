@@ -9,13 +9,12 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 TOKEN = os.environ["BOT_TOKEN"]
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
-LEADERBOARD_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/leaderboard.json"
 
-ORDERS_URL = "https://cp20.tokenscan.io/explorer/orders"
-DISPENSES_URL = "https://cp20.tokenscan.io/explorer/dispenses"
-DISPENSERS_URL = "https://cp20.tokenscan.io/explorer/dispensers"
+ORDERS = "https://cp20.tokenscan.io/explorer/orders"
+DISPENSES = "https://cp20.tokenscan.io/explorer/dispenses"
+DISPENSERS = "https://cp20.tokenscan.io/explorer/dispensers"
 
-SCAN_LIMIT = 2000
+SCAN = 2000
 STEP = 100
 
 
@@ -23,65 +22,61 @@ STEP = 100
 # HELPERS
 # ------------------------------------------------
 
-def clean(asset):
+def clean(x):
 
-    return str(asset).replace("|", "")
-
-
-def short(addr):
-
-    return addr[:6] + "..." + addr[-4:]
+    return str(x).replace("|","")
 
 
-def load_cards():
+def short(a):
+
+    return a[:6] + "..." + a[-4:]
+
+
+def cards():
 
     return requests.get(CARDS_JSON).json()["cards"]
 
 
 # ------------------------------------------------
-# CARDS
+# CARD
 # ------------------------------------------------
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    cards = load_cards()
+    c = cards()
 
-    if len(context.args) == 0:
+    if not context.args:
 
-        card = random.choice(cards)
+        card = random.choice(c)
 
     else:
 
-        asset = context.args[0].upper()
+        name = context.args[0].upper()
 
         card = None
 
-        for c in cards:
+        for i in c:
 
-            if c["asset"] == asset:
-                card = c
+            if i["asset"] == name:
+
+                card = i
 
         if not card:
 
             await update.message.reply_text("Card not found")
             return
 
-    caption = f"""
-🐦 {card['asset']}
-
-Rare Pigeons
-
-https://www.rarepigeons.com
-"""
-
-    await update.message.reply_photo(photo=card["image"], caption=caption)
+    await update.message.reply_photo(
+        photo=card["image"],
+        caption=f"🐦 {card['asset']}\n\nhttps://www.rarepigeons.com"
+    )
 
 
 async def randompigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    cards = load_cards()
+    c = cards()
 
-    card = random.choice(cards)
+    card = random.choice(c)
 
     await update.message.reply_photo(photo=card["image"], caption=card["asset"])
 
@@ -99,39 +94,49 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    # DEX SALES
+    # BTC dispenser sales
 
-    for start in range(0, SCAN_LIMIT, STEP):
+    for start in range(0,SCAN,STEP):
 
-        r = requests.get(f"{ORDERS_URL}?start={start}&length={STEP}").json()
+        r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            give_qty = float(row[3])
+            a = clean(row[4])
+
+            if a == asset:
+
+                price = row[6]
+                tx = row[7]
+
+                await update.message.reply_text(
+                    f"🐦 LAST SALE\n\n{asset}\n\n{price} BTC\n\nhttps://cp20.tokenscan.io/tx/{tx}"
+                )
+
+                return
+
+    # XCP DEX sales
+
+    for start in range(0,SCAN,STEP):
+
+        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
+
+        for row in r["data"]:
+
             give_asset = clean(row[4])
-
-            get_qty = float(row[5])
             get_asset = clean(row[6])
-
             status = row[7]
-            tx = row[8]
 
-            if status == "filled" and give_asset == asset:
+            if status=="filled" and give_asset==asset:
 
-                price = get_qty / give_qty
+                give = float(row[3])
+                get = float(row[5])
 
-                text = f"""
-🐦 LAST SALE
+                price = get/give
 
-{asset}
-
-Price
-{price} XCP
-
-https://cp20.tokenscan.io/tx/{tx}
-"""
-
-                await update.message.reply_text(text)
+                await update.message.reply_text(
+                    f"🐦 LAST SALE\n\n{asset}\n\n{price} XCP"
+                )
 
                 return
 
@@ -155,29 +160,49 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     count = 0
 
-    for start in range(0, SCAN_LIMIT, STEP):
+    # BTC dispenser
 
-        r = requests.get(f"{ORDERS_URL}?start={start}&length={STEP}").json()
+    for start in range(0,SCAN,STEP):
+
+        r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            give_qty = float(row[3])
+            a = clean(row[4])
+
+            if a == asset:
+
+                text += f"{row[6]} BTC\n"
+
+                count+=1
+
+                if count==10:
+
+                    await update.message.reply_text(text)
+
+                    return
+
+    # XCP DEX
+
+    for start in range(0,SCAN,STEP):
+
+        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
+
+        for row in r["data"]:
+
             give_asset = clean(row[4])
-
-            get_qty = float(row[5])
-            get_asset = clean(row[6])
-
             status = row[7]
 
-            if status == "filled" and give_asset == asset:
+            if status=="filled" and give_asset==asset:
 
-                price = get_qty / give_qty
+                give=float(row[3])
+                get=float(row[5])
 
-                text += f"{price} XCP\n"
+                text+=f"{get/give} XCP\n"
 
-                count += 1
+                count+=1
 
-                if count == 10:
+                if count==10:
 
                     await update.message.reply_text(text)
 
@@ -197,45 +222,51 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /floor ASSET")
         return
 
-    asset = context.args[0].upper()
+    asset=context.args[0].upper()
 
-    prices = []
+    floors=[]
 
-    for start in range(0, SCAN_LIMIT, STEP):
+    # DEX floor
 
-        r = requests.get(f"{ORDERS_URL}?start={start}&length={STEP}").json()
+    for start in range(0,SCAN,STEP):
+
+        r=requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            give_qty = float(row[3])
-            give_asset = clean(row[4])
+            give_asset=clean(row[4])
+            status=row[7]
 
-            get_qty = float(row[5])
-            get_asset = clean(row[6])
+            if status=="open" and give_asset==asset:
 
-            status = row[7]
+                give=float(row[3])
+                get=float(row[5])
 
-            if status == "open" and give_asset == asset:
+                floors.append(get/give)
 
-                price = get_qty / give_qty
+    # dispenser floor
 
-                prices.append(price)
+    for start in range(0,SCAN,STEP):
 
-    if not prices:
+        r=requests.get(f"{DISPENSERS}?start={start}&length={STEP}").json()
+
+        for row in r["data"]:
+
+            a=clean(row[4])
+
+            if a==asset:
+
+                floors.append(float(row[6]))
+
+    if not floors:
 
         await update.message.reply_text("No listings")
 
         return
 
-    floor_price = min(prices)
+    floor_price=min(floors)
 
-    text = f"""
-🐦 {asset} FLOOR
-
-{floor_price} XCP
-"""
-
-    await update.message.reply_text(text)
+    await update.message.reply_text(f"🐦 {asset} FLOOR\n\n{floor_price}")
 
 
 # ------------------------------------------------
@@ -249,118 +280,59 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: /market ASSET")
         return
 
-    asset = context.args[0].upper()
+    asset=context.args[0].upper()
 
-    best_sell = None
-    best_buy = None
+    best_sell=None
+    best_buy=None
 
-    for start in range(0, SCAN_LIMIT, STEP):
+    for start in range(0,SCAN,STEP):
 
-        r = requests.get(f"{ORDERS_URL}?start={start}&length={STEP}").json()
+        r=requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            give_qty = float(row[3])
-            give_asset = clean(row[4])
+            give_asset=clean(row[4])
+            get_asset=clean(row[6])
+            status=row[7]
 
-            get_qty = float(row[5])
-            get_asset = clean(row[6])
+            if status!="open":
 
-            status = row[7]
-
-            if status != "open":
                 continue
 
-            # sell order
+            give=float(row[3])
+            get=float(row[5])
 
-            if give_asset == asset:
+            if give_asset==asset:
 
-                price = get_qty / give_qty
+                price=get/give
 
-                if best_sell is None or price < best_sell:
+                if best_sell is None or price<best_sell:
 
-                    best_sell = price
+                    best_sell=price
 
-            # buy order
+            if get_asset==asset:
 
-            if get_asset == asset:
+                price=give/get
 
-                price = give_qty / get_qty
+                if best_buy is None or price>best_buy:
 
-                if best_buy is None or price > best_buy:
+                    best_buy=price
 
-                    best_buy = price
-
-    text = f"🐦 {asset} MARKET\n\n"
+    text=f"🐦 {asset} MARKET\n\n"
 
     if best_sell:
 
-        text += f"Best SELL\n{best_sell} XCP\n"
+        text+=f"Best SELL\n{best_sell} XCP\n"
 
     if best_buy:
 
-        text += f"\nBest BUY\n{best_buy} XCP\n"
+        text+=f"\nBest BUY\n{best_buy} XCP\n"
 
     if not best_sell and not best_buy:
 
-        text += "No orders"
+        text+="No orders"
 
     await update.message.reply_text(text)
-
-
-# ------------------------------------------------
-# LEADERBOARD
-# ------------------------------------------------
-
-async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    data = requests.get(LEADERBOARD_JSON).json()
-
-    if not context.args:
-
-        text = "🏆 Rare Pigeons Leaderboard\n\n"
-
-        for i, row in enumerate(data[:20]):
-
-            addr = row["address"]
-
-            text += f"{i+1}. {short(addr)}\n"
-            text += f"Cards {row['cards']} ({row['percent']}%)\n\n"
-
-        await update.message.reply_text(text)
-
-    else:
-
-        addr = context.args[0]
-
-        for i, row in enumerate(data):
-
-            if row["address"] == addr:
-
-                text = f"""
-🏆 Rare Pigeons Rank
-
-Address
-{addr}
-
-Rank
-#{i+1}
-
-Cards
-{row['cards']}
-
-Collection
-{row['percent']}%
-
-Missing
-{row['missing']}
-"""
-
-                await update.message.reply_text(text)
-
-                return
-
-        await update.message.reply_text("Address not found")
 
 
 # ------------------------------------------------
@@ -369,27 +341,21 @@ Missing
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    text = """
-🐦 Rare Pigeons Bot
+    await update.message.reply_text(
 
-Cards
+"""🐦 Rare Pigeons Bot
+
 /pigeon ASSET
 /random
 
-Market
 /ls ASSET
 /sales ASSET
 /floor ASSET
 /market ASSET
 
-Leaderboard
-/leaderboard
-/leaderboard ADDRESS
-
 /menu
 """
-
-    await update.message.reply_text(text)
+    )
 
 
 # ------------------------------------------------
@@ -404,9 +370,8 @@ app.add_handler(CommandHandler("ls", ls))
 app.add_handler(CommandHandler("sales", sales))
 app.add_handler(CommandHandler("floor", floor))
 app.add_handler(CommandHandler("market", market))
-app.add_handler(CommandHandler("leaderboard", leaderboard))
 app.add_handler(CommandHandler("menu", menu))
 
-print("Rare Pigeons bot started 🐦")
+print("Rare Pigeons bot started")
 
 app.run_polling()
