@@ -41,6 +41,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if not context.args:
+        await update.message.reply_text("Usage: /pigeon ASSET")
+        return
+
     asset = context.args[0].upper()
 
     if asset not in ASSETS:
@@ -54,12 +58,19 @@ async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = random.choice(ASSET_LIST)
 
-    await update.message.reply_photo(photo=ASSETS[asset], caption=asset)
+    await update.message.reply_photo(
+        photo=ASSETS[asset],
+        caption=asset
+    )
 
 
 # ---------------- LAST SALE ----------------
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not context.args:
+        await update.message.reply_text("Usage: /ls ASSET")
+        return
 
     asset = context.args[0].upper()
 
@@ -67,7 +78,7 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for row in r["data"]:
 
-        if row[4] == asset:
+        if asset in str(row):
 
             buyer = row[3]
             price = row[6]
@@ -100,6 +111,10 @@ https://tokenscan.io/tx/{tx}
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if not context.args:
+        await update.message.reply_text("Usage: /floor ASSET")
+        return
+
     asset = context.args[0].upper()
 
     r = requests.get(DISPENSERS).json()
@@ -110,9 +125,12 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for row in r["data"]:
 
-        if row[4] == asset:
+        if asset in str(row):
 
-            price = float(row[6])
+            try:
+                price = float(row[6])
+            except:
+                continue
 
             if best_price is None or price < best_price:
 
@@ -146,6 +164,10 @@ https://tokenscan.io/tx/{best_tx}
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if not context.args:
+        await update.message.reply_text("Usage: /market ASSET")
+        return
+
     asset = context.args[0].upper()
 
     r = requests.get(ORDERS).json()
@@ -154,18 +176,13 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for row in r["data"]:
 
-        give_qty = float(row[3])
-        give_asset = row[4]
+        if asset in str(row):
 
-        get_qty = float(row[5])
-        get_asset = row[6]
-
-        status = row[7]
-
-        if status != "open":
-            continue
-
-        if give_asset == asset:
+            try:
+                give_qty = float(row[3])
+                get_qty = float(row[5])
+            except:
+                continue
 
             price = get_qty / give_qty
 
