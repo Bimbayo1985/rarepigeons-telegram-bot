@@ -1,7 +1,6 @@
 import os
 import random
 import requests
-from bs4 import BeautifulSoup
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -16,79 +15,92 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-def get_asset_page(asset):
+def scan_dispenses(asset):
 
-    url = f"https://tokenscan.io/asset/{asset}"
+    for page in range(20):
 
-    r = requests.get(url, timeout=20)
+        start = page * 100
 
-    if r.status_code != 200:
-        return None
+        url = f"https://tokenscan.io/explorer/dispenses?start={start}&length=100"
 
-    return BeautifulSoup(r.text, "lxml")
+        rows = requests.get(url).json()["data"]
 
+        for row in rows:
 
-def parse_last_sale(soup):
+            if row[5] == asset:
 
-    table = soup.find("table", {"id": "dispenses-table"})
+                return {
+                    "buyer": row[3],
+                    "price": float(row[6]),
+                    "tx": row[7]
+                }
 
-    if not table:
-        return None
-
-    row = table.find("tbody").find("tr")
-
-    cols = row.find_all("td")
-
-    buyer = cols[2].text.strip()
-    price = cols[4].text.strip()
-    tx = cols[5].find("a")["href"]
-
-    return buyer, price, tx
+    return None
 
 
-def parse_floor(soup):
+def scan_dispensers(asset):
 
-    table = soup.find("table", {"id": "dispensers-table"})
+    best = None
 
-    if not table:
-        return None
+    for page in range(20):
 
-    rows = table.find("tbody").find_all("tr")
+        start = page * 100
 
-    best_price = None
-    seller = None
-    tx = None
+        url = f"https://tokenscan.io/explorer/dispensers?start={start}&length=100"
 
-    for row in rows:
+        rows = requests.get(url).json()["data"]
 
-        cols = row.find_all("td")
+        for row in rows:
 
-        price = float(cols[4].text.strip())
+            if row[5] != asset:
+                continue
 
-        if best_price is None or price < best_price:
+            price = float(row[6])
 
-            best_price = price
-            seller = cols[2].text.strip()
-            tx = cols[6].find("a")["href"]
+            if best is None or price < best["price"]:
 
-    return best_price, seller, tx
+                best = {
+                    "price": price,
+                    "seller": row[3],
+                    "tx": row[8]
+                }
+
+    return best
 
 
-def parse_market(soup):
+def scan_orders(asset):
 
-    table = soup.find("table", {"id": "markets-table"})
+    best = None
 
-    if not table:
-        return None
+    for page in range(20):
 
-    row = table.find("tbody").find("tr")
+        start = page * 100
 
-    cols = row.find_all("td")
+        url = f"https://tokenscan.io/explorer/orders?start={start}&length=100"
 
-    price = cols[3].text.strip()
-    tx = cols[6].find("a")["href"]
+        rows = requests.get(url).json()["data"]
 
-    return price, tx
+        for row in rows:
+
+            give_asset = row[4]
+            get_asset = row[6]
+
+            if give_asset != asset and get_asset != asset:
+                continue
+
+            give_qty = float(row[3])
+            get_qty = float(row[5])
+
+            price = (get_qty / give_qty) * 1000
+
+            if best is None or price < best["price"]:
+
+                best = {
+                    "price": price,
+                    "tx": row[9]
+                }
+
+    return best
 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -105,6 +117,18 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    asset = context.args[0].upper()
+
+    if asset not in ASSETS:
+
+        await update.message.reply_text("Unknown pigeon")
+        return
+
+    await update.message.reply_photo(ASSETS[asset])
+
+
 async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = random.choice(ASSET_LIST)
@@ -116,27 +140,24 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_asset_page(asset)
+    data = scan_dispenses(asset)
 
-    result = parse_last_sale(soup)
+    if not data:
 
-    if not result:
         await update.message.reply_text("No sales found")
         return
-
-    buyer, price, tx = result
 
     caption = f"""🐦 LAST SALE
 
 {asset}
 
 Price
-{price} BTC
+{data["price"]:.8f} BTC
 
 Buyer
-{buyer}
+{data["buyer"]}
 
-https://tokenscan.io{tx}
+https://tokenscan.io/tx/{data["tx"]}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=caption)
@@ -146,25 +167,22 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_asset_page(asset)
+    data = scan_dispensers(asset)
 
-    result = parse_floor(soup)
+    if not data:
 
-    if not result:
         await update.message.reply_text("No listings")
         return
-
-    price, seller, tx = result
 
     caption = f"""🐦 {asset} FLOOR
 
 Price
-{price} BTC
+{data["price"]:.8f} BTC
 
 Seller
-{seller}
+{data["seller"]}
 
-https://tokenscan.io{tx}
+https://tokenscan.io/tx/{data["tx"]}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=caption)
@@ -174,23 +192,20 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_asset_page(asset)
+    data = scan_orders(asset)
 
-    result = parse_market(soup)
+    if not data:
 
-    if not result:
         await update.message.reply_text("No orders")
         return
-
-    price, tx = result
 
     caption = f"""🐦 {asset} MARKET
 
 Best order
 
-{price} XCP
+{data["price"]:.2f} XCP
 
-https://tokenscan.io{tx}
+https://tokenscan.io/tx/{data["tx"]}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=caption)
@@ -203,10 +218,12 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CommandHandler("pigeon", pigeon))
+    app.add_handler(CommandHandler("random", random_pigeon))
+
     app.add_handler(CommandHandler("ls", ls))
     app.add_handler(CommandHandler("floor", floor))
     app.add_handler(CommandHandler("market", market))
-    app.add_handler(CommandHandler("random", random_pigeon))
 
     app.run_polling()
 
