@@ -1,21 +1,22 @@
 import requests
 import random
 import os
-import re
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
+
 TOKEN = os.environ["BOT_TOKEN"]
 
-CARDS_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
-LEADERBOARD_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/leaderboard.json"
+CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+LEADERBOARD_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/leaderboard.json"
 
-DISPENSES_URL = "https://tokenscan.io/explorer/dispenses"
-DISPENSERS_URL = "https://tokenscan.io/explorer/dispensers"
-ORDERS_URL = "https://tokenscan.io/explorer/orders"
+DISPENSES = "https://cp20.tokenscan.io/explorer/dispenses"
+DISPENSERS = "https://cp20.tokenscan.io/explorer/dispensers"
+ORDERS = "https://cp20.tokenscan.io/explorer/orders"
 
-MAX_SCAN = 2000
+
+SCAN_LIMIT = 2000
 STEP = 100
 
 
@@ -25,7 +26,7 @@ STEP = 100
 
 def load_cards():
 
-    return requests.get(CARDS_URL).json()["cards"]
+    return requests.get(CARDS_JSON).json()["cards"]
 
 
 def asset_images():
@@ -35,19 +36,14 @@ def asset_images():
     return {c["asset"]: c["image"] for c in cards}
 
 
+def parse_asset(raw):
+
+    return str(raw).replace("|", "").replace("<", "").replace(">", "")
+
+
 def short(addr):
 
     return addr[:6] + "..." + addr[-4:]
-
-
-def parse_asset(raw):
-
-    m = re.search(r'>([A-Z0-9]+)<', str(raw))
-
-    if m:
-        return m.group(1)
-
-    return str(raw).replace("|", "")
 
 
 # ------------------------------------------------
@@ -64,19 +60,18 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
 
-        name = context.args[0].upper()
+        asset = context.args[0].upper()
 
         card = None
 
         for c in cards:
 
-            if c["asset"] == name:
+            if c["asset"] == asset:
                 card = c
 
         if not card:
 
             await update.message.reply_text("Card not found")
-
             return
 
     caption = f"""
@@ -116,11 +111,11 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    for start in range(0, MAX_SCAN, STEP):
+    # DISPENSER SALES
 
-        url = f"{DISPENSES_URL}?start={start}&length={STEP}"
+    for start in range(0, SCAN_LIMIT, STEP):
 
-        r = requests.get(url).json()
+        r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
@@ -143,7 +138,43 @@ Price
 Buyer
 {short(buyer)}
 
-https://tokenscan.io/tx/{tx}
+https://cp20.tokenscan.io/tx/{tx}
+"""
+
+                await update.message.reply_text(text)
+
+                return
+
+    # DEX SALES
+
+    for start in range(0, SCAN_LIMIT, STEP):
+
+        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
+
+        for row in r["data"]:
+
+            give_qty = float(row[3])
+            give_asset = parse_asset(row[4])
+
+            get_qty = float(row[5])
+            get_asset = parse_asset(row[6])
+
+            status = row[7]
+
+            if status != "filled":
+                continue
+
+            if give_asset == asset:
+
+                price = get_qty / give_qty
+
+                text = f"""
+🐦 LAST SALE (DEX)
+
+{asset}
+
+Price
+{price} XCP
 """
 
                 await update.message.reply_text(text)
@@ -170,11 +201,9 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     count = 0
 
-    for start in range(0, MAX_SCAN, STEP):
+    for start in range(0, SCAN_LIMIT, STEP):
 
-        url = f"{DISPENSES_URL}?start={start}&length={STEP}"
-
-        r = requests.get(url).json()
+        r = requests.get(f"{DISPENSES}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
@@ -202,21 +231,24 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    assets = asset_images()
+    if len(context.args) == 0:
+
+        await update.message.reply_text("Usage: /floor ASSET")
+        return
+
+    asset = context.args[0].upper()
 
     prices = []
 
-    for start in range(0, MAX_SCAN, STEP):
+    for start in range(0, SCAN_LIMIT, STEP):
 
-        url = f"{DISPENSERS_URL}?start={start}&length={STEP}"
-
-        r = requests.get(url).json()
+        r = requests.get(f"{DISPENSERS}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
-            asset = parse_asset(row[4])
+            row_asset = parse_asset(row[4])
 
-            if asset in assets:
+            if row_asset == asset:
 
                 prices.append(float(row[6]))
 
@@ -228,7 +260,7 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     floor_price = min(prices)
 
     text = f"""
-🐦 Rare Pigeons Floor
+🐦 {asset} FLOOR
 
 {floor_price} BTC
 """
@@ -252,11 +284,9 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
     best_sell = None
     best_buy = None
 
-    for start in range(0, MAX_SCAN, STEP):
+    for start in range(0, SCAN_LIMIT, STEP):
 
-        url = f"{ORDERS_URL}?start={start}&length={STEP}"
-
-        r = requests.get(url).json()
+        r = requests.get(f"{ORDERS}?start={start}&length={STEP}").json()
 
         for row in r["data"]:
 
@@ -294,7 +324,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"\nBest BUY\n{best_buy} XCP\n"
 
     if not best_sell and not best_buy:
-        text += "No orders found"
+        text += "No orders"
 
     await update.message.reply_text(text)
 
@@ -305,7 +335,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    data = requests.get(LEADERBOARD_URL).json()
+    data = requests.get(LEADERBOARD_JSON).json()
 
     if len(context.args) == 0:
 
@@ -372,8 +402,8 @@ Cards
 Market
 /ls ASSET
 /sales ASSET
+/floor ASSET
 /market ASSET
-/floor
 
 Leaderboard
 /leaderboard
