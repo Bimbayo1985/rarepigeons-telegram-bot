@@ -1,11 +1,13 @@
 import os
 import random
 import requests
+from bs4 import BeautifulSoup
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+TOKEN = os.getenv("BOT_TOKEN")
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
@@ -15,87 +17,99 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-def last_sale(asset):
+def parse_asset_page(asset):
 
-    url = f"https://tokenscan.io/explorer/dispenses?asset={asset}&start=0&length=1"
+    url = f"https://tokenscan.io/asset/{asset}"
 
-    rows = requests.get(url).json()["data"]
+    html = requests.get(url).text
 
-    if not rows:
+    soup = BeautifulSoup(html, "html.parser")
+
+    return soup
+
+
+def get_last_sale(asset):
+
+    soup = parse_asset_page(asset)
+
+    table = soup.find("table", {"id": "dispenses-table"})
+
+    if not table:
         return None
 
-    r = rows[0]
+    rows = table.find_all("tr")
 
-    return {
-        "buyer": r[3],
-        "price": float(r[6]),
-        "tx": r[7]
-    }
-
-
-def floor(asset):
-
-    url = f"https://tokenscan.io/explorer/dispensers?asset={asset}&start=0&length=50"
-
-    rows = requests.get(url).json()["data"]
-
-    if not rows:
+    if len(rows) < 2:
         return None
 
-    best = None
+    cols = rows[1].find_all("td")
 
-    for r in rows:
+    price = cols[5].text.strip()
+    buyer = cols[3].text.strip()
 
-        price = float(r[6])
+    link = cols[0].find("a")["href"]
 
-        if best is None or price < best["price"]:
-
-            best = {
-                "price": price,
-                "seller": r[3],
-                "tx": r[8]
-            }
-
-    return best
+    return price, buyer, "https://tokenscan.io" + link
 
 
-def market(asset):
+def get_floor(asset):
 
-    url = f"https://tokenscan.io/explorer/orders?asset={asset}&start=0&length=50"
+    soup = parse_asset_page(asset)
 
-    rows = requests.get(url).json()["data"]
+    table = soup.find("table", {"id": "dispensers-table"})
 
-    if not rows:
+    if not table:
         return None
 
-    best = None
+    rows = table.find_all("tr")
 
-    for r in rows:
+    if len(rows) < 2:
+        return None
 
-        give_qty = float(r[3])
-        get_qty = float(r[5])
+    cols = rows[1].find_all("td")
 
-        price = get_qty / give_qty
+    price = cols[6].text.strip()
+    seller = cols[3].text.strip()
 
-        if best is None or price < best["price"]:
+    link = cols[0].find("a")["href"]
 
-            best = {
-                "price": price,
-                "tx": r[9]
-            }
+    return price, seller, "https://tokenscan.io" + link
 
-    return best
+
+def get_market(asset):
+
+    soup = parse_asset_page(asset)
+
+    table = soup.find("table", {"id": "orders-table"})
+
+    if not table:
+        return None
+
+    rows = table.find_all("tr")
+
+    if len(rows) < 2:
+        return None
+
+    cols = rows[1].find_all("td")
+
+    price = cols[6].text.strip()
+
+    link = cols[0].find("a")["href"]
+
+    return price, "https://tokenscan.io" + link
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = last_sale(asset)
+    data = get_last_sale(asset)
 
     if not data:
         await update.message.reply_text("No sales found")
         return
+
+    price, buyer, tx = data
 
     text = f"""
 🐦 LAST SALE
@@ -103,60 +117,64 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {asset}
 
 Price
-{data['price']:.8f} BTC
+{price}
 
 Buyer
-{data['buyer']}
+{buyer}
 
-https://tokenscan.io/tx/{data['tx']}
+{tx}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
-async def floor_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = floor(asset)
+    data = get_floor(asset)
 
     if not data:
         await update.message.reply_text("No listings")
         return
 
+    price, seller, tx = data
+
     text = f"""
 🐦 {asset} FLOOR
 
 Price
-{data['price']:.8f} BTC
+{price}
 
 Seller
-{data['seller']}
+{seller}
 
-https://tokenscan.io/tx/{data['tx']}
+{tx}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
-async def market_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = market(asset)
+    data = get_market(asset)
 
     if not data:
         await update.message.reply_text("No orders")
         return
+
+    price, tx = data
 
     text = f"""
 🐦 {asset} MARKET
 
 Best order
 
-{data['price']:.2f} XCP
+{price}
 
-https://tokenscan.io/tx/{data['tx']}
+{tx}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=text)
@@ -171,11 +189,11 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("ls", ls))
-    app.add_handler(CommandHandler("floor", floor_cmd))
-    app.add_handler(CommandHandler("market", market_cmd))
+    app.add_handler(CommandHandler("floor", floor))
+    app.add_handler(CommandHandler("market", market))
     app.add_handler(CommandHandler("random", random_card))
 
     app.run_polling()
