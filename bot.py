@@ -11,6 +11,9 @@ JSON_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/ma
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if update.message is None:
+        return
+
     try:
         data = requests.get(JSON_URL).json()
         cards = data["cards"]
@@ -52,6 +55,9 @@ https://www.rarepigeons.com
 
 async def randompigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if update.message is None:
+        return
+
     try:
         data = requests.get(JSON_URL).json()
         cards = data["cards"]
@@ -74,10 +80,20 @@ https://www.rarepigeons.com
     await update.message.reply_photo(photo=image, caption=caption)
 
 
+# тимчасова команда для отримання chat_id
+async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.message is None:
+        return
+
+    await update.message.reply_text(f"Chat ID: {update.effective_chat.id}")
+
+
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("pigeon", pigeon))
 app.add_handler(CommandHandler("random", randompigeon))
+app.add_handler(CommandHandler("chatid", chatid))
 
 print("Rare Pigeons bot started 🐦")
 
