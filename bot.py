@@ -7,28 +7,36 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 TOKEN = os.environ["BOT_TOKEN"]
 
-JSON_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+CARDS_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+LEADERBOARD_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/leaderboard.json"
 
-DISPENSES_BASE = "https://tokenscan.io/explorer/dispenses"
-DISPENSERS_BASE = "https://tokenscan.io/explorer/dispensers"
-ORDERS_BASE = "https://tokenscan.io/explorer/orders"
+DISPENSES_URL = "https://tokenscan.io/explorer/dispenses"
+DISPENSERS_URL = "https://tokenscan.io/explorer/dispensers"
+ORDERS_URL = "https://tokenscan.io/explorer/orders"
 
 MAX_SCAN = 10000
 STEP = 100
 
 
+# ------------------------------------------------
+# HELPERS
+# ------------------------------------------------
+
 def load_cards():
 
-    data = requests.get(JSON_URL).json()
-
-    return data["cards"]
+    return requests.get(CARDS_URL).json()["cards"]
 
 
-def get_assets():
+def asset_images():
 
     cards = load_cards()
 
     return {c["asset"]: c["image"] for c in cards}
+
+
+def clean(asset):
+
+    return asset.replace("|", "")
 
 
 def short(addr):
@@ -37,7 +45,7 @@ def short(addr):
 
 
 # ------------------------------------------------
-# PIGEON
+# CARD
 # ------------------------------------------------
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -60,9 +68,9 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 card = c
 
-        if card is None:
+        if not card:
 
-            await update.message.reply_text("Pigeon not found 🐦")
+            await update.message.reply_text("Card not found")
 
             return
 
@@ -106,13 +114,13 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for start in range(0, MAX_SCAN, STEP):
 
-        url = f"{DISPENSES_BASE}?start={start}&length={STEP}"
+        url = f"{DISPENSES_URL}?start={start}&length={STEP}"
 
         r = requests.get(url).json()
 
         for row in r["data"]:
 
-            if row[4] == asset:
+            if clean(row[4]) == asset:
 
                 buyer = row[3]
 
@@ -142,7 +150,7 @@ https://tokenscan.io/tx/{tx}
 
 
 # ------------------------------------------------
-# SALES HISTORY
+# SALES
 # ------------------------------------------------
 
 async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -161,13 +169,13 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for start in range(0, MAX_SCAN, STEP):
 
-        url = f"{DISPENSES_BASE}?start={start}&length={STEP}"
+        url = f"{DISPENSES_URL}?start={start}&length={STEP}"
 
         r = requests.get(url).json()
 
         for row in r["data"]:
 
-            if row[4] == asset:
+            if clean(row[4]) == asset:
 
                 price = row[6]
 
@@ -190,25 +198,23 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    assets = get_assets()
+    assets = asset_images()
 
     prices = []
 
     for start in range(0, MAX_SCAN, STEP):
 
-        url = f"{DISPENSERS_BASE}?start={start}&length={STEP}"
+        url = f"{DISPENSERS_URL}?start={start}&length={STEP}"
 
         r = requests.get(url).json()
 
         for row in r["data"]:
 
-            asset = row[4]
+            asset = clean(row[4])
 
             if asset in assets:
 
-                price = float(row[6])
-
-                prices.append(price)
+                prices.append(float(row[6]))
 
     if not prices:
 
@@ -247,19 +253,17 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for start in range(0, MAX_SCAN, STEP):
 
-        url = f"{ORDERS_BASE}?start={start}&length={STEP}"
+        url = f"{ORDERS_URL}?start={start}&length={STEP}"
 
         r = requests.get(url).json()
 
         for row in r["data"]:
 
             give_qty = float(row[3])
-
-            give_asset = row[4]
+            give_asset = clean(row[4])
 
             get_qty = float(row[5])
-
-            get_asset = row[6]
+            get_asset = clean(row[6])
 
             status = row[7]
 
@@ -271,7 +275,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 price = get_qty / give_qty
 
-                if best_sell is None or price < best_sell:
+                if not best_sell or price < best_sell:
 
                     best_sell = price
 
@@ -279,7 +283,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 price = give_qty / get_qty
 
-                if best_buy is None or price > best_buy:
+                if not best_buy or price > best_buy:
 
                     best_buy = price
 
@@ -301,6 +305,65 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ------------------------------------------------
+# LEADERBOARD
+# ------------------------------------------------
+
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    data = requests.get(LEADERBOARD_URL).json()
+
+    if len(context.args) == 0:
+
+        text = "🏆 Rare Pigeons Leaderboard\n\n"
+
+        for i, row in enumerate(data[:20]):
+
+            addr = row["address"]
+
+            cards = row["cards"]
+
+            percent = row["percent"]
+
+            text += f"{i+1}. {short(addr)}\n"
+            text += f"Cards {cards} ({percent}%)\n\n"
+
+        await update.message.reply_text(text)
+
+    else:
+
+        addr = context.args[0]
+
+        for i, row in enumerate(data):
+
+            if row["address"] == addr:
+
+                text = f"""
+🏆 Rare Pigeons Rank
+
+Address
+{addr}
+
+Rank
+#{i+1}
+
+Cards
+{row['cards']}
+
+Collection
+{row['percent']}%
+
+Missing
+{row['missing']}
+"""
+
+                await update.message.reply_text(text)
+
+                return
+
+        await update.message.reply_text("Address not found")
+
+
+# ------------------------------------------------
 # MENU
 # ------------------------------------------------
 
@@ -319,7 +382,10 @@ Market
 /market ASSET
 /floor
 
-Menu
+Leaderboard
+/leaderboard
+/leaderboard ADDRESS
+
 /menu
 """
 
@@ -333,17 +399,12 @@ Menu
 app = ApplicationBuilder().token(TOKEN).build()
 
 app.add_handler(CommandHandler("pigeon", pigeon))
-
 app.add_handler(CommandHandler("random", randompigeon))
-
 app.add_handler(CommandHandler("ls", ls))
-
 app.add_handler(CommandHandler("sales", sales))
-
 app.add_handler(CommandHandler("floor", floor))
-
 app.add_handler(CommandHandler("market", market))
-
+app.add_handler(CommandHandler("leaderboard", leaderboard))
 app.add_handler(CommandHandler("menu", menu))
 
 print("Rare Pigeons bot started 🐦")
