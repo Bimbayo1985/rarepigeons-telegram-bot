@@ -8,16 +8,18 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
-DISPENSES = "https://tokenscan.io/explorer/dispenses?start=0&length=200"
-DISPENSERS = "https://tokenscan.io/explorer/dispensers?start=0&length=200"
-ORDERS = "https://tokenscan.io/explorer/orders?start=0&length=200"
-
 cards = requests.get(CARDS_JSON).json()["cards"]
 ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-# ---------------- MENU ----------------
+def get_asset(asset):
+    url = f"https://cp20.tokenscan.io/{asset}"
+    r = requests.get(url)
+    if r.status_code != 200:
+        return None
+    return r.json()
+
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -37,13 +39,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await menu(update, context)
 
 
-# ---------------- PIGEON ----------------
-
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not context.args:
-        await update.message.reply_text("Usage: /pigeon ASSET")
-        return
 
     asset = context.args[0].upper()
 
@@ -64,94 +60,23 @@ async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ---------------- LAST SALE ----------------
-
-async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not context.args:
-        await update.message.reply_text("Usage: /ls ASSET")
-        return
-
-    asset = context.args[0].upper()
-
-    r = requests.get(DISPENSES).json()
-
-    for row in r["data"]:
-
-        if asset in str(row):
-
-            buyer = row[3]
-            price = row[6]
-            tx = row[7]
-
-            caption = f"""🐦 LAST SALE
-
-{asset}
-
-Price
-{price} BTC
-
-Buyer
-{buyer}
-
-https://tokenscan.io/tx/{tx}
-"""
-
-            await update.message.reply_photo(
-                photo=ASSETS.get(asset),
-                caption=caption
-            )
-
-            return
-
-    await update.message.reply_text("No sales found")
-
-
-# ---------------- FLOOR ----------------
-
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not context.args:
-        await update.message.reply_text("Usage: /floor ASSET")
-        return
-
     asset = context.args[0].upper()
 
-    r = requests.get(DISPENSERS).json()
+    data = get_asset(asset)
 
-    best_price = None
-    best_tx = None
-    seller = None
-
-    for row in r["data"]:
-
-        if asset in str(row):
-
-            try:
-                price = float(row[6])
-            except:
-                continue
-
-            if best_price is None or price < best_price:
-
-                best_price = price
-                seller = row[3]
-                best_tx = row[7]
-
-    if best_price is None:
-
-        await update.message.reply_text("No listings")
+    if not data:
+        await update.message.reply_text("Asset not found")
         return
+
+    floor = data["market_info"]["btc"]["floor"]
 
     caption = f"""🐦 {asset} FLOOR
 
-Price
-{best_price} BTC
+{floor} BTC
 
-Seller
-{seller}
-
-https://tokenscan.io/tx/{best_tx}
+https://tokenscan.io/asset/{asset}
 """
 
     await update.message.reply_photo(
@@ -160,45 +85,23 @@ https://tokenscan.io/tx/{best_tx}
     )
 
 
-# ---------------- MARKET ----------------
-
-async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not context.args:
-        await update.message.reply_text("Usage: /market ASSET")
-        return
+async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    r = requests.get(ORDERS).json()
+    data = get_asset(asset)
 
-    best_price = None
-
-    for row in r["data"]:
-
-        if asset in str(row):
-
-            try:
-                give_qty = float(row[3])
-                get_qty = float(row[5])
-            except:
-                continue
-
-            price = get_qty / give_qty
-
-            if best_price is None or price < best_price:
-                best_price = price
-
-    if best_price is None:
-
-        await update.message.reply_text("No orders")
+    if not data:
+        await update.message.reply_text("Asset not found")
         return
 
-    caption = f"""🐦 {asset} MARKET
+    price = data["estimated_value"]["btc"]
 
-Best SELL
+    caption = f"""🐦 LAST SALE
 
-{best_price:.8f} XCP
+{asset}
+
+≈ {price} BTC
 """
 
     await update.message.reply_photo(
@@ -207,7 +110,28 @@ Best SELL
     )
 
 
-# ---------------- MAIN ----------------
+async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    asset = context.args[0].upper()
+
+    data = get_asset(asset)
+
+    if not data:
+        await update.message.reply_text("Asset not found")
+        return
+
+    price = data["market_info"]["btc"]["price"]
+
+    caption = f"""🐦 {asset} MARKET
+
+{price} BTC
+"""
+
+    await update.message.reply_photo(
+        photo=ASSETS.get(asset),
+        caption=caption
+    )
+
 
 def main():
 
@@ -225,7 +149,7 @@ def main():
     app.add_handler(CommandHandler("floor", floor))
     app.add_handler(CommandHandler("market", market))
 
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling()
 
 
 if __name__ == "__main__":
