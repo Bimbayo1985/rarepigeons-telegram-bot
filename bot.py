@@ -15,40 +15,19 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-def get_dispenses(asset):
-
-    url = f"https://tokenscan.io/explorer/dispenses?asset={asset}&start=0&length=10"
-
-    r = requests.get(url)
-
-    if r.status_code != 200:
-        return None
-
-    return r.json()["data"]
+def get_dispenses():
+    url = "https://tokenscan.io/explorer/dispenses?start=0&length=50"
+    return requests.get(url).json()["data"]
 
 
-def get_dispensers(asset):
-
-    url = f"https://tokenscan.io/explorer/dispensers?asset={asset}&start=0&length=100"
-
-    r = requests.get(url)
-
-    if r.status_code != 200:
-        return None
-
-    return r.json()["data"]
+def get_dispensers():
+    url = "https://tokenscan.io/explorer/dispensers?start=0&length=200"
+    return requests.get(url).json()["data"]
 
 
-def get_orders(asset):
-
-    url = f"https://tokenscan.io/explorer/orders?asset={asset}&start=0&length=100"
-
-    r = requests.get(url)
-
-    if r.status_code != 200:
-        return None
-
-    return r.json()["data"]
+def get_orders():
+    url = "https://tokenscan.io/explorer/orders?start=0&length=200"
+    return requests.get(url).json()["data"]
 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,31 +63,33 @@ async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = random.choice(ASSET_LIST)
 
-    await update.message.reply_photo(photo=ASSETS[asset], caption=asset)
+    await update.message.reply_photo(
+        photo=ASSETS[asset],
+        caption=asset
+    )
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    rows = get_dispenses(asset)
+    rows = get_dispenses()
 
-    if not rows:
-        await update.message.reply_text("No sales found")
-        return
+    for row in rows:
 
-    row = rows[0]
+        if row[5] != asset:
+            continue
 
-    price = row[6]
-    buyer = row[3]
-    tx = row[7]
+        buyer = row[3]
+        price = float(row[6])
+        tx = row[7]
 
-    caption = f"""🐦 LAST SALE
+        caption = f"""🐦 LAST SALE
 
 {asset}
 
 Price
-{price} BTC
+{price:.8f} BTC
 
 Buyer
 {buyer}
@@ -116,43 +97,47 @@ Buyer
 https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_photo(
-        photo=ASSETS.get(asset),
-        caption=caption
-    )
+        await update.message.reply_photo(
+            photo=ASSETS.get(asset),
+            caption=caption
+        )
+        return
+
+    await update.message.reply_text("No sales found")
 
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    rows = get_dispensers(asset)
+    rows = get_dispensers()
 
-    if not rows:
-        await update.message.reply_text("No listings")
-        return
-
-    best = None
+    best_price = None
     seller = None
     tx = None
 
     for row in rows:
 
-        try:
-            price = float(row[6])
-        except:
+        if row[5] != asset:
             continue
 
-        if best is None or price < best:
+        price = float(row[6])
 
-            best = price
+        if best_price is None or price < best_price:
+
+            best_price = price
             seller = row[3]
-            tx = row[7]
+            tx = row[8]
+
+    if best_price is None:
+
+        await update.message.reply_text("No listings")
+        return
 
     caption = f"""🐦 {asset} FLOOR
 
 Price
-{best} BTC
+{best_price:.8f} BTC
 
 Seller
 {seller}
@@ -170,32 +155,41 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    rows = get_orders(asset)
+    rows = get_orders()
 
-    if not rows:
-        await update.message.reply_text("No orders")
-        return
-
-    best = None
+    best_price = None
+    order_tx = None
 
     for row in rows:
 
-        try:
-            give = float(row[3])
-            get = float(row[5])
-        except:
+        give_asset = row[4]
+        get_asset = row[6]
+
+        if give_asset != asset and get_asset != asset:
             continue
 
-        price = get / give
+        give_qty = float(row[3])
+        get_qty = float(row[5])
 
-        if best is None or price < best:
-            best = price
+        price = (get_qty / give_qty) * 1000
+
+        if best_price is None or price < best_price:
+
+            best_price = price
+            order_tx = row[8]
+
+    if best_price is None:
+
+        await update.message.reply_text("No orders")
+        return
 
     caption = f"""🐦 {asset} MARKET
 
 Best order
 
-{best:.8f} XCP
+{best_price:.2f} XCP
+
+https://tokenscan.io/tx/{order_tx}
 """
 
     await update.message.reply_photo(
