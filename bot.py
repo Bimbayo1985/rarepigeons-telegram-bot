@@ -15,18 +15,18 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-def dispenses(asset):
-    url = f"https://tokenscan.io/explorer/dispenses?asset={asset}&start=0&length=50"
+def dispenses():
+    url = "https://tokenscan.io/explorer/dispenses?start=0&length=100"
     return requests.get(url).json()["data"]
 
 
-def dispensers(asset):
-    url = f"https://tokenscan.io/explorer/dispensers?asset={asset}&start=0&length=200"
+def dispensers():
+    url = "https://tokenscan.io/explorer/dispensers?start=0&length=200"
     return requests.get(url).json()["data"]
 
 
-def orders(asset):
-    url = f"https://tokenscan.io/explorer/orders?asset={asset}&start=0&length=200"
+def orders():
+    url = "https://tokenscan.io/explorer/orders?start=0&length=200"
     return requests.get(url).json()["data"]
 
 
@@ -70,19 +70,18 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    rows = dispenses(asset)
+    rows = dispenses()
 
-    if not rows:
-        await update.message.reply_text("No sales found")
-        return
+    for row in rows:
 
-    row = rows[0]
+        if row[5] != asset:
+            continue
 
-    buyer = row[3]
-    price = float(row[6])
-    tx = row[7]
+        buyer = row[3]
+        price = float(row[6])
+        tx = row[7]
 
-    caption = f"""🐦 LAST SALE
+        caption = f"""🐦 LAST SALE
 
 {asset}
 
@@ -95,27 +94,29 @@ Buyer
 https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_photo(
-        photo=ASSETS.get(asset),
-        caption=caption
-    )
+        await update.message.reply_photo(
+            photo=ASSETS.get(asset),
+            caption=caption
+        )
+        return
+
+    await update.message.reply_text("No sales found")
 
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    rows = dispensers(asset)
-
-    if not rows:
-        await update.message.reply_text("No listings")
-        return
+    rows = dispensers()
 
     best_price = None
     seller = None
     tx = None
 
     for row in rows:
+
+        if row[5] != asset:
+            continue
 
         price = float(row[6])
 
@@ -124,6 +125,11 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
             best_price = price
             seller = row[3]
             tx = row[8]
+
+    if best_price is None:
+
+        await update.message.reply_text("No listings")
+        return
 
     caption = f"""🐦 {asset} FLOOR
 
@@ -146,16 +152,18 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    rows = orders(asset)
-
-    if not rows:
-        await update.message.reply_text("No orders")
-        return
+    rows = orders()
 
     best_price = None
     tx = None
 
     for row in rows:
+
+        give_asset = row[4]
+        get_asset = row[6]
+
+        if give_asset != asset and get_asset != asset:
+            continue
 
         give_qty = float(row[3])
         get_qty = float(row[5])
@@ -165,7 +173,12 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if best_price is None or price < best_price:
 
             best_price = price
-            tx = row[8]
+            tx = row[9]
+
+    if best_price is None:
+
+        await update.message.reply_text("No orders")
+        return
 
     caption = f"""🐦 {asset} MARKET
 
