@@ -1,4 +1,5 @@
 import os
+import random
 import requests
 from bs4 import BeautifulSoup
 from telegram import Update
@@ -6,30 +7,40 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-BASE = "https://cp20.tokenscan.io/asset/"
+ASSET_URL = "https://cp20.tokenscan.io/asset/"
+CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
-# -------- helpers --------
+
+# -------- LOAD CARDS --------
+
+cards_data = requests.get(CARDS_JSON, timeout=20).json()["cards"]
+
+ASSETS = {c["asset"]: c["image"] for c in cards_data}
+ASSET_LIST = list(ASSETS.keys())
+
+
+# -------- HELPERS --------
 
 def get_page(asset):
-    r = requests.get(BASE + asset, timeout=20)
+
+    r = requests.get(ASSET_URL + asset, timeout=20)
+
     if r.status_code != 200:
         return None
+
     return BeautifulSoup(r.text, "lxml")
 
-def get_card_image(soup):
-    img = soup.select_one("img")
-    if img:
-        return img.get("src")
-    return None
 
-def find_value(soup, label):
+def find_price(soup, keyword):
 
     rows = soup.find_all("tr")
 
     for r in rows:
+
         txt = r.get_text(" ", strip=True)
 
-        if label in txt:
+        if keyword in txt:
+
             parts = txt.split()
 
             for p in parts:
@@ -39,7 +50,7 @@ def find_value(soup, label):
     return None
 
 
-# -------- commands --------
+# -------- COMMANDS --------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -56,6 +67,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     await menu(update, context)
 
 
@@ -66,23 +78,21 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    soup = get_page(asset)
-
-    if not soup:
-        await update.message.reply_text("Asset not found")
+    if asset not in ASSETS:
+        await update.message.reply_text("Unknown pigeon")
         return
 
-    img = get_card_image(soup)
-
-    if img:
-        await update.message.reply_photo(photo=img)
-    else:
-        await update.message.reply_text(asset)
+    await update.message.reply_photo(photo=ASSETS[asset])
 
 
-async def random(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def random_pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    await update.message.reply_text("Random feature not implemented yet")
+    asset = random.choice(ASSET_LIST)
+
+    await update.message.reply_photo(
+        photo=ASSETS[asset],
+        caption=asset
+    )
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -98,13 +108,11 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Asset not found")
         return
 
-    price = find_value(soup, "BTC Paid")
+    price = find_price(soup, "BTC Paid")
 
     if not price:
         await update.message.reply_text("No sales found")
         return
-
-    img = get_card_image(soup)
 
     caption = f"""🐦 LAST SALE
 
@@ -115,8 +123,8 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 https://cp20.tokenscan.io/asset/{asset}
 """
 
-    if img:
-        await update.message.reply_photo(photo=img, caption=caption)
+    if asset in ASSETS:
+        await update.message.reply_photo(photo=ASSETS[asset], caption=caption)
     else:
         await update.message.reply_text(caption)
 
@@ -134,13 +142,11 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Asset not found")
         return
 
-    price = find_value(soup, "BTC Floor")
+    price = find_price(soup, "BTC Floor")
 
     if not price:
         await update.message.reply_text("No listings")
         return
-
-    img = get_card_image(soup)
 
     caption = f"""🐦 {asset} FLOOR
 
@@ -149,8 +155,8 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 https://cp20.tokenscan.io/asset/{asset}
 """
 
-    if img:
-        await update.message.reply_photo(photo=img, caption=caption)
+    if asset in ASSETS:
+        await update.message.reply_photo(photo=ASSETS[asset], caption=caption)
     else:
         await update.message.reply_text(caption)
 
@@ -168,13 +174,11 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Asset not found")
         return
 
-    price = find_value(soup, "Selling")
+    price = find_price(soup, "Selling")
 
     if not price:
         await update.message.reply_text("No orders")
         return
-
-    img = get_card_image(soup)
 
     caption = f"""🐦 {asset} MARKET
 
@@ -185,17 +189,17 @@ Best SELL
 https://cp20.tokenscan.io/asset/{asset}
 """
 
-    if img:
-        await update.message.reply_photo(photo=img, caption=caption)
+    if asset in ASSETS:
+        await update.message.reply_photo(photo=ASSETS[asset], caption=caption)
     else:
         await update.message.reply_text(caption)
 
 
-# -------- main --------
+# -------- MAIN --------
 
 def main():
 
-    print("Starting Rare Pigeons bot")
+    print("Rare Pigeons bot starting")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -203,7 +207,7 @@ def main():
     app.add_handler(CommandHandler("menu", menu))
 
     app.add_handler(CommandHandler("pigeon", pigeon))
-    app.add_handler(CommandHandler("random", random))
+    app.add_handler(CommandHandler("random", random_pigeon))
 
     app.add_handler(CommandHandler("ls", ls))
     app.add_handler(CommandHandler("floor", floor))
