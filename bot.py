@@ -5,7 +5,6 @@ import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
@@ -92,11 +91,10 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asset = context.args[0].upper()
 
     card = get_card(asset)
-
     image = card["image"] if card else None
 
 
-    # BTC dispenser sales
+    # DISPENSER SALES
 
     for start in range(0,SCAN,STEP):
 
@@ -111,8 +109,7 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 price = float(row[6])
                 tx = row[7]
 
-                text = f"""
-🐦 LAST SALE
+                text = f"""🐦 LAST SALE
 
 {asset}
 
@@ -129,7 +126,7 @@ https://cp20.tokenscan.io/tx/{tx}
                 return
 
 
-    # XCP DEX sales
+    # DEX SALES
 
     for start in range(0,SCAN,STEP):
 
@@ -144,13 +141,11 @@ https://cp20.tokenscan.io/tx/{tx}
 
                 give = float(row[3])
                 get = float(row[5])
-
                 price = get/give
 
                 tx = row[8]
 
-                text = f"""
-🐦 LAST SALE
+                text = f"""🐦 LAST SALE
 
 {asset}
 
@@ -182,15 +177,13 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asset = context.args[0].upper()
 
     card = get_card(asset)
-
     image = card["image"] if card else None
 
     text = f"🐦 {asset} SALES\n\n"
-
     count = 0
 
 
-    # dispenser sales
+    # DISPENSER SALES
 
     for start in range(0,SCAN,STEP):
 
@@ -218,7 +211,7 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     return
 
 
-    # dex sales
+    # DEX SALES
 
     for start in range(0,SCAN,STEP):
 
@@ -233,7 +226,6 @@ async def sales(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 give = float(row[3])
                 get = float(row[5])
-
                 price = get/give
 
                 text += f"{price:.8f} XCP\n"
@@ -265,13 +257,12 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asset = context.args[0].upper()
 
     card = get_card(asset)
-
     image = card["image"] if card else None
 
     floors = []
 
 
-    # DEX floor
+    # DEX FLOOR
 
     for start in range(0,SCAN,STEP):
 
@@ -286,7 +277,6 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                 give = float(row[3])
                 get = float(row[5])
-
                 price = get/give
 
                 tx = row[8]
@@ -298,7 +288,7 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
 
 
-    # dispenser floor
+    # DISPENSER FLOOR
 
     for start in range(0,SCAN,STEP):
 
@@ -311,27 +301,23 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if a == asset:
 
                 price = float(row[6])
-
-                dispenser = row[9]
+                tx = row[8]
 
                 floors.append({
                     "price": price,
                     "type": "BTC",
-                    "link": f"https://cp20.tokenscan.io/dispenser/{dispenser}"
+                    "link": f"https://cp20.tokenscan.io/tx/{tx}"
                 })
 
 
     if not floors:
-
         await update.message.reply_text("No listings")
         return
 
 
     best = min(floors, key=lambda x: x["price"])
 
-
-    text = f"""
-🐦 {asset} FLOOR
+    text = f"""🐦 {asset} FLOOR
 
 {best['price']:.8f} {best['type']}
 
@@ -357,7 +343,6 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asset = context.args[0].upper()
 
     card = get_card(asset)
-
     image = card["image"] if card else None
 
     best_buy = None
@@ -379,7 +364,6 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             give = float(row[3])
             get = float(row[5])
-
             tx = row[8]
 
             if give_asset == asset:
@@ -409,7 +393,6 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"Best BUY\n{best_buy['price']:.8f} XCP\n"
         text += f"https://cp20.tokenscan.io/tx/{best_buy['tx']}"
 
-
     if image:
         await update.message.reply_photo(photo=image, caption=text)
     else:
@@ -423,7 +406,6 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
-
 """🐦 Rare Pigeons Bot
 
 /pigeon ASSET
