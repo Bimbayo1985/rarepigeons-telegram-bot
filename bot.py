@@ -15,6 +15,10 @@ ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
+# -------------------------
+# LAST SALE
+# -------------------------
+
 def find_last_sale(asset):
 
     start = 0
@@ -30,7 +34,7 @@ def find_last_sale(asset):
 
         for r in rows:
 
-            if r[2] == asset:
+            if r[4] == asset:
 
                 return {
                     "price": float(r[6]),
@@ -42,6 +46,10 @@ def find_last_sale(asset):
 
     return None
 
+
+# -------------------------
+# FLOOR
+# -------------------------
 
 def find_floor(asset):
 
@@ -59,7 +67,7 @@ def find_floor(asset):
 
         for r in rows:
 
-            if r[2] == asset:
+            if r[4] == asset:
 
                 price = float(r[6])
 
@@ -75,6 +83,10 @@ def find_floor(asset):
 
     return best
 
+
+# -------------------------
+# MARKET
+# -------------------------
 
 def find_market(asset):
 
@@ -92,13 +104,13 @@ def find_market(asset):
 
         for r in rows:
 
-            give_asset = r[2]
-            get_asset = r[4]
+            give_qty = float(r[3])
+            give_asset = r[4]
+
+            get_qty = float(r[5])
+            get_asset = r[6]
 
             if give_asset == asset and get_asset == "XCP":
-
-                give_qty = float(r[3])
-                get_qty = float(r[5])
 
                 price = get_qty / give_qty
 
@@ -113,6 +125,10 @@ def find_market(asset):
 
     return best
 
+
+# -------------------------
+# COMMANDS
+# -------------------------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -133,6 +149,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not context.args:
+        await update.message.reply_text("Usage: /pigeon ASSET")
         return
 
     asset = context.args[0].upper()
@@ -152,6 +169,10 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not context.args:
+        await update.message.reply_text("Usage: /ls ASSET")
+        return
 
     asset = context.args[0].upper()
 
@@ -180,6 +201,10 @@ https://tokenscan.io/tx/{data['tx']}
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if not context.args:
+        await update.message.reply_text("Usage: /floor ASSET")
+        return
+
     asset = context.args[0].upper()
 
     data = find_floor(asset)
@@ -205,6 +230,10 @@ https://tokenscan.io/tx/{data['tx']}
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    if not context.args:
+        await update.message.reply_text("Usage: /market ASSET")
+        return
+
     asset = context.args[0].upper()
 
     data = find_market(asset)
@@ -226,6 +255,10 @@ https://tokenscan.io/tx/{data['tx']}
     await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
+# -------------------------
+# BOT START
+# -------------------------
+
 def main():
 
     app = ApplicationBuilder().token(TOKEN).build()
@@ -236,6 +269,8 @@ def main():
     app.add_handler(CommandHandler("ls", ls))
     app.add_handler(CommandHandler("floor", floor))
     app.add_handler(CommandHandler("market", market))
+
+    print("Rare Pigeons bot started")
 
     app.run_polling()
 
