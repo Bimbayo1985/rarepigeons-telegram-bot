@@ -1,230 +1,250 @@
-import requests
-import time
 import os
+import time
+import requests
 
-BOT_TOKEN = os.environ["BOT_TOKEN"]
-CHAT_ID = os.environ["CHAT_ID"]
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-JSON_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
-DISPENSES_URL = "https://tokenscan.io/explorer/dispenses?start=0&length=20"
-DISPENSERS_URL = "https://tokenscan.io/explorer/dispensers?start=0&length=20"
-ORDERS_URL = "https://tokenscan.io/explorer/orders?start=0&length=20"
+IMAGE_BASE = "https://rarepigeons.com/cards/"
+
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
+CHECK_INTERVAL = 15
 
 
-def send_photo(image, caption):
+# -----------------------------
+# LOAD CARDS
+# -----------------------------
+
+cards_data = requests.get(LIST_JSON).json()["cards"]
+
+CARDS = {}
+ASSETS = []
+
+for c in cards_data:
+
+    asset = c["asset"]
+    image = c["image"]
+
+    if not image.startswith("http"):
+        image = IMAGE_BASE + image
+
+    CARDS[asset] = image
+    ASSETS.append(asset)
+
+
+# -----------------------------
+# TELEGRAM
+# -----------------------------
+
+def send_photo(asset, text):
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    requests.post(url, data={
+    data = {
         "chat_id": CHAT_ID,
-        "photo": image,
-        "caption": caption
-    })
+        "photo": CARDS.get(asset),
+        "caption": text
+    }
+
+    requests.post(url, data=data)
 
 
-def load_assets():
+# -----------------------------
+# MEMORY (avoid duplicates)
+# -----------------------------
 
-    r = requests.get(JSON_URL)
-
-    data = r.json()
-
-    return {c["asset"]: c["image"] for c in data["cards"]}
-
-
-def safe_json(url):
-
-    try:
-        r = requests.get(url, timeout=10)
-        return r.json()
-    except:
-        return None
+seen_dispenses = set()
+seen_dispensers = set()
+seen_orders = set()
+seen_matches = set()
 
 
-assets = load_assets()
+# -----------------------------
+# DISPENSER SALES
+# -----------------------------
 
-print("Rare Pigeons watcher started")
+def check_dispenses():
 
-last_dispense = 0
-last_dispenser = 0
-last_order = 0
+    for asset in ASSETS:
+
+        url = f"https://tokenscan.io/api/dispenses/{asset}"
+
+        r = requests.get(url, headers=HEADERS).json()
+
+        for d in r["data"]:
+
+            tx = d["tx_hash"]
+
+            if tx in seen_dispenses:
+                continue
+
+            seen_dispenses.add(tx)
+
+            price = d["btc_amount"]
+            buyer = d["address"]
+
+            text = f"""
+{asset} sold via dispenser
+
+Price: {price} BTC
+Buyer: {buyer}
+
+https://tokenscan.io/tx/{tx}
+"""
+
+            send_photo(asset, text)
 
 
-def init_ids():
+# -----------------------------
+# NEW DISPENSERS
+# -----------------------------
 
-    global last_dispense
-    global last_dispenser
-    global last_order
+def check_dispensers():
 
-    d = safe_json(DISPENSES_URL)
-    if d and d["data"]:
-        last_dispense = d["data"][0][0]
+    for asset in ASSETS:
 
-    d = safe_json(DISPENSERS_URL)
-    if d and d["data"]:
-        last_dispenser = d["data"][0][0]
+        url = f"https://tokenscan.io/api/dispensers/{asset}"
 
-    d = safe_json(ORDERS_URL)
-    if d and d["data"]:
-        last_order = d["data"][0][0]
+        r = requests.get(url, headers=HEADERS).json()
+
+        for d in r["data"]:
+
+            tx = d["tx_hash"]
+
+            if tx in seen_dispensers:
+                continue
+
+            seen_dispensers.add(tx)
+
+            price = d["satoshi_price"]
+            amount = d["give_remaining"]
+
+            text = f"""
+{asset} listed via dispenser
+
+Amount: {amount}
+Price: {price} BTC
+
+https://tokenscan.io/tx/{tx}
+"""
+
+            send_photo(asset, text)
 
 
-init_ids()
+# -----------------------------
+# MARKET ORDERS
+# -----------------------------
 
-print("Watcher initialized")
+def check_orders():
 
+    url = "https://api.unspendablelabs.com:4000/v2/orders?status=open"
+
+    r = requests.get(url, headers=HEADERS).json()
+
+    for o in r["result"]:
+
+        tx = o["tx_hash"]
+
+        if tx in seen_orders:
+            continue
+
+        give_asset = o["give_asset"]
+        get_asset = o["get_asset"]
+
+        if give_asset not in ASSETS and get_asset not in ASSETS:
+            continue
+
+        seen_orders.add(tx)
+
+        give_qty = o["give_quantity"]
+        get_qty = o["get_quantity"]
+
+        if give_asset in ASSETS:
+
+            price = (get_qty / 1e8) / give_qty
+
+            text = f"""
+Sell order
+
+{give_asset} → {get_asset}
+
+Price: {price} {get_asset}
+
+https://tokenscan.io/tx/{tx}
+"""
+
+            send_photo(give_asset, text)
+
+        else:
+
+            price = (give_qty / 1e8) / get_qty
+
+            text = f"""
+Buy order
+
+{get_asset} ← {give_asset}
+
+Price: {price} {give_asset}
+
+https://tokenscan.io/tx/{tx}
+"""
+
+            send_photo(get_asset, text)
+
+
+# -----------------------------
+# ORDER MATCHES
+# -----------------------------
+
+def check_matches():
+
+    url = "https://api.unspendablelabs.com:4000/v2/order_matches"
+
+    r = requests.get(url, headers=HEADERS).json()
+
+    for m in r["result"]:
+
+        tx = m["tx_hash"]
+
+        if tx in seen_matches:
+            continue
+
+        asset = m["forward_asset"]
+
+        if asset not in ASSETS:
+            continue
+
+        seen_matches.add(tx)
+
+        text = f"""
+{asset} trade executed
+
+https://tokenscan.io/tx/{tx}
+"""
+
+        send_photo(asset, text)
+
+
+# -----------------------------
+# MAIN LOOP
+# -----------------------------
+
+print("Watcher running")
 
 while True:
 
     try:
 
-        # ------------------
-        # DISPENSE SALES
-        # ------------------
-
-        r = safe_json(DISPENSES_URL)
-
-        if r:
-
-            for row in r["data"]:
-
-                event_id = row[0]
-
-                if event_id <= last_dispense:
-                    break
-
-                asset = row[4]
-
-                if asset in assets:
-
-                    buyer = row[3]
-                    price = row[6]
-                    tx = row[7]
-
-                    caption = f"""
-🐦 SOLD
-
-{asset}
-
-Price
-{price} BTC
-
-Buyer
-{buyer}
-
-https://tokenscan.io/tx/{tx}
-"""
-
-                    send_photo(assets[asset], caption)
-
-                last_dispense = event_id
-
-
-        # ------------------
-        # DISPENSER CREATED
-        # ------------------
-
-        r = safe_json(DISPENSERS_URL)
-
-        if r:
-
-            for row in r["data"]:
-
-                event_id = row[0]
-
-                if event_id <= last_dispenser:
-                    break
-
-                asset = row[4]
-
-                if asset in assets:
-
-                    seller = row[3]
-                    price = row[6]
-
-                    caption = f"""
-🟡 DISPENSER CREATED
-
-{asset}
-
-Price
-{price} BTC
-
-Seller
-{seller}
-"""
-
-                    send_photo(assets[asset], caption)
-
-                last_dispenser = event_id
-
-
-        # ------------------
-        # DEX EVENTS
-        # ------------------
-
-        r = safe_json(ORDERS_URL)
-
-        if r:
-
-            for row in r["data"]:
-
-                event_id = row[0]
-
-                if event_id <= last_order:
-                    break
-
-                give_qty = float(row[3])
-                give_asset = row[4]
-
-                get_qty = float(row[5])
-                get_asset = row[6]
-
-                status = row[7]
-
-                asset = None
-                event = None
-                price = None
-
-                if give_asset in assets:
-
-                    asset = give_asset
-                    price = get_qty / give_qty
-
-                    if status == "open":
-                        event = "🔵 SELL ORDER"
-
-                    if status == "filled":
-                        event = "🔥 DEX SALE"
-
-                elif get_asset in assets:
-
-                    asset = get_asset
-                    price = give_qty / get_qty
-
-                    if status == "open":
-                        event = "🟢 BUY ORDER"
-
-                    if status == "filled":
-                        event = "🔥 DEX SALE"
-
-                if asset and event:
-
-                    caption = f"""
-{event}
-
-{asset}
-
-Price
-{price:.4f} XCP
-"""
-
-                    send_photo(assets[asset], caption)
-
-                last_order = event_id
+        check_dispenses()
+        check_dispensers()
+        check_orders()
+        check_matches()
 
     except Exception as e:
 
         print("Watcher error:", e)
 
-    time.sleep(20)
+    time.sleep(CHECK_INTERVAL)
