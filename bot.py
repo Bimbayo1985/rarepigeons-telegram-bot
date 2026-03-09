@@ -5,10 +5,11 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+
+IMAGE_BASE = "https://rarepigeons.com/cards/"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -19,7 +20,18 @@ HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 cards_data = requests.get(LIST_JSON).json()["cards"]
 
-CARDS = {c["asset"]: c["image"] for c in cards_data}
+CARDS = {}
+
+for c in cards_data:
+
+    asset = c["asset"]
+    image = c["image"]
+
+    if not image.startswith("http"):
+        image = IMAGE_BASE + image
+
+    CARDS[asset] = image
+
 ASSETS = list(CARDS.keys())
 
 
@@ -43,22 +55,21 @@ Rare Pigeons Bot
 
 
 # -----------------------------
-# RANDOM CARD
+# RANDOM
 # -----------------------------
 
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = random.choice(ASSETS)
-    img = CARDS[asset]
 
     await update.message.reply_photo(
-        photo=img,
-        caption=f"{asset}"
+        photo=CARDS[asset],
+        caption=asset
     )
 
 
 # -----------------------------
-# PIGEON CARD
+# PIGEON
 # -----------------------------
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -95,7 +106,6 @@ def get_last_sale(asset):
     d = r["data"][0]
 
     price = float(d["btc_amount"])
-
     tx = d["tx_hash"]
 
     return price, tx
@@ -129,7 +139,7 @@ https://tokenscan.io/tx/{tx}
 
 
 # -----------------------------
-# FLOOR DISPENSER
+# FLOOR
 # -----------------------------
 
 def get_floor(asset):
@@ -144,7 +154,6 @@ def get_floor(asset):
     d = r["data"][0]
 
     price = float(d["satoshi_price"])
-
     tx = d["tx_hash"]
 
     return price, tx
@@ -178,7 +187,7 @@ https://tokenscan.io/tx/{tx}
 
 
 # -----------------------------
-# MARKET ORDER
+# MARKET
 # -----------------------------
 
 def get_market(asset):
@@ -190,18 +199,24 @@ def get_market(asset):
     if not r["result"]:
         return None
 
-    order = r["result"][0]
+    best_price = None
+    best_order = None
 
-    give_qty = order["give_quantity"]
-    get_qty = order["get_quantity"]
+    for o in r["result"]:
 
-    price = (get_qty / 1e8) / give_qty
+        give_qty = o["give_quantity"]
+        get_qty = o["get_quantity"]
 
-    tx_index = order["tx_index"]
+        price = (get_qty / 1e8) / give_qty
 
-    remaining = order["give_remaining"]
+        if best_price is None or price < best_price:
+            best_price = price
+            best_order = o
 
-    return price, remaining, tx_index
+    remaining = best_order["give_remaining"]
+    tx_hash = best_order["tx_hash"]
+
+    return best_price, remaining, tx_hash
 
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -226,7 +241,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Price: {price} XCP
 Available: {remaining}
 
-https://cp20.tokenscan.io/tx/{tx}
+https://tokenscan.io/tx/{tx}
 """
 
     await update.message.reply_text(text)
