@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import requests
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -9,9 +10,11 @@ LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/m
 
 IMAGE_BASE = "https://rarepigeons.com/cards/"
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
-
 CHECK_INTERVAL = 15
+
+STATE_FILE = "watcher_state.json"
+
+HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
 # -----------------------------
@@ -36,6 +39,31 @@ for c in cards_data:
 
 
 # -----------------------------
+# STATE
+# -----------------------------
+
+if os.path.exists(STATE_FILE):
+
+    with open(STATE_FILE) as f:
+        state = json.load(f)
+
+else:
+
+    state = {
+        "dispenses": [],
+        "dispensers": [],
+        "orders": [],
+        "matches": []
+    }
+
+
+def save_state():
+
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f)
+
+
+# -----------------------------
 # TELEGRAM
 # -----------------------------
 
@@ -53,17 +81,7 @@ def send_photo(asset, text):
 
 
 # -----------------------------
-# MEMORY (avoid duplicates)
-# -----------------------------
-
-seen_dispenses = set()
-seen_dispensers = set()
-seen_orders = set()
-seen_matches = set()
-
-
-# -----------------------------
-# DISPENSER SALES
+# DISPENSE SALES
 # -----------------------------
 
 def check_dispenses():
@@ -78,20 +96,19 @@ def check_dispenses():
 
             tx = d["tx_hash"]
 
-            if tx in seen_dispenses:
+            if tx in state["dispenses"]:
                 continue
 
-            seen_dispenses.add(tx)
+            state["dispenses"].append(tx)
 
             price = d["btc_amount"]
-            buyer = d["address"]
 
-            text = f"""
-{asset} sold via dispenser
+            text = f"""{asset} sold via dispenser
 
 Price: {price} BTC
-Buyer: {buyer}
+Amount: 1
 
+TX
 https://tokenscan.io/tx/{tx}
 """
 
@@ -114,20 +131,20 @@ def check_dispensers():
 
             tx = d["tx_hash"]
 
-            if tx in seen_dispensers:
+            if tx in state["dispensers"]:
                 continue
 
-            seen_dispensers.add(tx)
+            state["dispensers"].append(tx)
 
             price = d["satoshi_price"]
             amount = d["give_remaining"]
 
-            text = f"""
-{asset} listed via dispenser
+            text = f"""{asset} listed via dispenser
 
 Amount: {amount}
 Price: {price} BTC
 
+TX
 https://tokenscan.io/tx/{tx}
 """
 
@@ -135,7 +152,7 @@ https://tokenscan.io/tx/{tx}
 
 
 # -----------------------------
-# MARKET ORDERS
+# ORDERS
 # -----------------------------
 
 def check_orders():
@@ -148,7 +165,7 @@ def check_orders():
 
         tx = o["tx_hash"]
 
-        if tx in seen_orders:
+        if tx in state["orders"]:
             continue
 
         give_asset = o["give_asset"]
@@ -157,22 +174,16 @@ def check_orders():
         if give_asset not in ASSETS and get_asset not in ASSETS:
             continue
 
-        seen_orders.add(tx)
-
-        give_qty = o["give_quantity"]
-        get_qty = o["get_quantity"]
+        state["orders"].append(tx)
 
         if give_asset in ASSETS:
 
-            price = (get_qty / 1e8) / give_qty
+            text = f"""{give_asset} sell order
 
-            text = f"""
-Sell order
+Sell: {o["give_quantity"]} {give_asset}
+Price: {o["get_price"]} {get_asset}
 
-{give_asset} → {get_asset}
-
-Price: {price} {get_asset}
-
+TX
 https://tokenscan.io/tx/{tx}
 """
 
@@ -180,15 +191,12 @@ https://tokenscan.io/tx/{tx}
 
         else:
 
-            price = (give_qty / 1e8) / get_qty
+            text = f"""{get_asset} buy order
 
-            text = f"""
-Buy order
+Buy: {o["get_quantity"]} {get_asset}
+Price: {o["give_price"]} {give_asset}
 
-{get_asset} ← {give_asset}
-
-Price: {price} {give_asset}
-
+TX
 https://tokenscan.io/tx/{tx}
 """
 
@@ -196,7 +204,7 @@ https://tokenscan.io/tx/{tx}
 
 
 # -----------------------------
-# ORDER MATCHES
+# MATCHES
 # -----------------------------
 
 def check_matches():
@@ -209,7 +217,7 @@ def check_matches():
 
         tx = m["tx_hash"]
 
-        if tx in seen_matches:
+        if tx in state["matches"]:
             continue
 
         asset = m["forward_asset"]
@@ -217,11 +225,13 @@ def check_matches():
         if asset not in ASSETS:
             continue
 
-        seen_matches.add(tx)
+        state["matches"].append(tx)
 
-        text = f"""
-{asset} trade executed
+        text = f"""{asset} trade executed
 
+Amount: {m["forward_quantity"]}
+
+TX
 https://tokenscan.io/tx/{tx}
 """
 
@@ -229,10 +239,10 @@ https://tokenscan.io/tx/{tx}
 
 
 # -----------------------------
-# MAIN LOOP
+# LOOP
 # -----------------------------
 
-print("Watcher running")
+print("Watcher started")
 
 while True:
 
@@ -242,6 +252,8 @@ while True:
         check_dispensers()
         check_orders()
         check_matches()
+
+        save_state()
 
     except Exception as e:
 
