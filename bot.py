@@ -5,106 +5,35 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.getenv("BOT_TOKEN")
 
-CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
-cards = requests.get(CARDS_JSON).json()["cards"]
 
-ASSETS = {c["asset"]: c["image"] for c in cards}
-ASSET_LIST = list(ASSETS.keys())
+# -----------------------------
+# LOAD CARDS
+# -----------------------------
+
+cards_data = requests.get(LIST_JSON).json()["cards"]
+
+CARDS = {c["asset"]: c["image"] for c in cards_data}
+ASSETS = list(CARDS.keys())
 
 
 # -----------------------------
-# LAST SALE
-# -----------------------------
-
-def find_last_sale(asset):
-
-    url = f"https://tokenscan.io/api/dispenses/{asset}"
-
-    r = requests.get(url).json()
-
-    if not r["data"]:
-        return None
-
-    d = r["data"][0]
-
-    return {
-        "price": float(d["btc_amount"]),
-        "buyer": d["address"],
-        "tx": d["tx_hash"]
-    }
-
-
-# -----------------------------
-# FLOOR
-# -----------------------------
-
-def find_floor(asset):
-
-    url = f"https://tokenscan.io/api/dispensers/{asset}?status=open"
-
-    r = requests.get(url).json()
-
-    if not r["data"]:
-        return None
-
-    best = min(r["data"], key=lambda x: float(x["satoshirate"]))
-
-    return {
-        "price": float(best["satoshirate"]),
-        "seller": best["source"],
-        "tx": best["tx_hash"]
-    }
-
-
-# -----------------------------
-# MARKET (HORIZON)
-# -----------------------------
-
-def find_market(asset):
-
-    url = "https://horizon.market/api/orders"
-
-    r = requests.get(url, headers=HEADERS).json()
-
-    best = None
-
-    for o in r["orders"]:
-
-        if o["give_asset"] != asset:
-            continue
-
-        give = float(o["give_quantity"])
-        get = float(o["get_quantity"])
-
-        price = get / give
-
-        if best is None or price < best["price"]:
-
-            best = {
-                "price": price,
-                "tx": o["tx_index"]
-            }
-
-    return best
-
-
-# -----------------------------
-# COMMANDS
+# MENU
 # -----------------------------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = """
-🐦 Rare Pigeons Bot
+Rare Pigeons Bot
 
 /pigeon ASSET
 /random
-
 /ls ASSET
 /floor ASSET
 /market ASSET
@@ -112,6 +41,25 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
+
+# -----------------------------
+# RANDOM CARD
+# -----------------------------
+
+async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    asset = random.choice(ASSETS)
+    img = CARDS[asset]
+
+    await update.message.reply_photo(
+        photo=img,
+        caption=f"{asset}"
+    )
+
+
+# -----------------------------
+# PIGEON CARD
+# -----------------------------
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -121,18 +69,36 @@ async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    if asset not in ASSETS:
+    if asset not in CARDS:
         await update.message.reply_text("Asset not found")
         return
 
-    await update.message.reply_photo(ASSETS[asset], caption=asset)
+    await update.message.reply_photo(
+        photo=CARDS[asset],
+        caption=asset
+    )
 
 
-async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# -----------------------------
+# LAST SALE
+# -----------------------------
 
-    asset = random.choice(ASSET_LIST)
+def get_last_sale(asset):
 
-    await update.message.reply_photo(ASSETS[asset], caption=asset)
+    url = f"https://tokenscan.io/api/dispenses/{asset}"
+
+    r = requests.get(url, headers=HEADERS).json()
+
+    if not r["data"]:
+        return None
+
+    d = r["data"][0]
+
+    price = float(d["btc_amount"])
+
+    tx = d["tx_hash"]
+
+    return price, tx
 
 
 async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,27 +109,45 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = find_last_sale(asset)
+    sale = get_last_sale(asset)
 
-    if not data:
+    if not sale:
         await update.message.reply_text("No sales found")
         return
 
+    price, tx = sale
+
     text = f"""
-🐦 LAST SALE
+{asset} last sale
 
-{asset}
+Price: {price} BTC
 
-Price
-{data['price']:.8f} BTC
-
-Buyer
-{data['buyer']}
-
-https://tokenscan.io/tx/{data['tx']}
+https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_photo(ASSETS[asset], caption=text)
+    await update.message.reply_text(text)
+
+
+# -----------------------------
+# FLOOR DISPENSER
+# -----------------------------
+
+def get_floor(asset):
+
+    url = f"https://tokenscan.io/api/dispensers/{asset}?status=open"
+
+    r = requests.get(url, headers=HEADERS).json()
+
+    if not r["data"]:
+        return None
+
+    d = r["data"][0]
+
+    price = float(d["satoshi_price"])
+
+    tx = d["tx_hash"]
+
+    return price, tx
 
 
 async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,25 +158,50 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = find_floor(asset)
+    listing = get_floor(asset)
 
-    if not data:
+    if not listing:
         await update.message.reply_text("No listings")
         return
 
+    price, tx = listing
+
     text = f"""
-🐦 {asset} FLOOR
+{asset} floor
 
-Price
-{data['price']:.8f} BTC
+Price: {price} BTC
 
-Seller
-{data['seller']}
-
-https://tokenscan.io/tx/{data['tx']}
+https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_photo(ASSETS[asset], caption=text)
+    await update.message.reply_text(text)
+
+
+# -----------------------------
+# MARKET ORDER
+# -----------------------------
+
+def get_market(asset):
+
+    url = f"https://api.unspendablelabs.com:4000/v2/orders?give_asset={asset}&status=open"
+
+    r = requests.get(url, headers=HEADERS).json()
+
+    if not r["result"]:
+        return None
+
+    order = r["result"][0]
+
+    give_qty = order["give_quantity"]
+    get_qty = order["get_quantity"]
+
+    price = (get_qty / 1e8) / give_qty
+
+    tx_index = order["tx_index"]
+
+    remaining = order["give_remaining"]
+
+    return price, remaining, tx_index
 
 
 async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -203,42 +212,39 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     asset = context.args[0].upper()
 
-    data = find_market(asset)
+    data = get_market(asset)
 
     if not data:
         await update.message.reply_text("No orders")
         return
 
+    price, remaining, tx = data
+
     text = f"""
-🐦 {asset} MARKET
+{asset} market
 
-Best order
+Price: {price} XCP
+Available: {remaining}
 
-{data['price']:.4f} XCP
-
-https://cp20.tokenscan.io/tx/{data['tx']}
+https://cp20.tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_photo(ASSETS[asset], caption=text)
+    await update.message.reply_text(text)
 
 
 # -----------------------------
+# START BOT
+# -----------------------------
 
-def main():
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app = ApplicationBuilder().token(TOKEN).build()
+app.add_handler(CommandHandler("menu", menu))
+app.add_handler(CommandHandler("random", random_card))
+app.add_handler(CommandHandler("pigeon", pigeon))
+app.add_handler(CommandHandler("ls", ls))
+app.add_handler(CommandHandler("floor", floor))
+app.add_handler(CommandHandler("market", market))
 
-    app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CommandHandler("pigeon", pigeon))
-    app.add_handler(CommandHandler("random", random_card))
-    app.add_handler(CommandHandler("ls", ls))
-    app.add_handler(CommandHandler("floor", floor))
-    app.add_handler(CommandHandler("market", market))
+print("Bot running")
 
-    print("Rare Pigeons bot started")
-
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+app.run_polling()
