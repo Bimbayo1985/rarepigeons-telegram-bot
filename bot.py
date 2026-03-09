@@ -9,126 +9,93 @@ TOKEN = os.getenv("BOT_TOKEN")
 
 CARDS_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
+HEADERS = {"User-Agent": "Mozilla/5.0"}
+
 cards = requests.get(CARDS_JSON).json()["cards"]
 
 ASSETS = {c["asset"]: c["image"] for c in cards}
 ASSET_LIST = list(ASSETS.keys())
 
 
-# -------------------------
+# -----------------------------
 # LAST SALE
-# -------------------------
+# -----------------------------
 
 def find_last_sale(asset):
 
-    start = 0
+    url = f"https://tokenscan.io/api/dispenses/{asset}"
 
-    while start < 500:
+    r = requests.get(url).json()
 
-        url = f"https://tokenscan.io/explorer/dispenses?start={start}&length=50"
+    if not r["data"]:
+        return None
 
-        rows = requests.get(url).json()["data"]
+    d = r["data"][0]
 
-        if not rows:
-            return None
-
-        for r in rows:
-
-            if r[4] == asset:
-
-                return {
-                    "price": float(r[6]),
-                    "buyer": r[3],
-                    "tx": r[7]
-                }
-
-        start += 50
-
-    return None
+    return {
+        "price": float(d["btc_amount"]),
+        "buyer": d["address"],
+        "tx": d["tx_hash"]
+    }
 
 
-# -------------------------
+# -----------------------------
 # FLOOR
-# -------------------------
+# -----------------------------
 
 def find_floor(asset):
 
-    start = 0
-    best = None
+    url = f"https://tokenscan.io/api/dispensers/{asset}?status=open"
 
-    while start < 500:
+    r = requests.get(url).json()
 
-        url = f"https://tokenscan.io/explorer/dispensers?start={start}&length=50"
+    if not r["data"]:
+        return None
 
-        rows = requests.get(url).json()["data"]
+    best = min(r["data"], key=lambda x: float(x["satoshirate"]))
 
-        if not rows:
-            break
-
-        for r in rows:
-
-            if r[4] == asset:
-
-                price = float(r[6])
-
-                if best is None or price < best["price"]:
-
-                    best = {
-                        "price": price,
-                        "seller": r[3],
-                        "tx": r[8]
-                    }
-
-        start += 50
-
-    return best
+    return {
+        "price": float(best["satoshirate"]),
+        "seller": best["source"],
+        "tx": best["tx_hash"]
+    }
 
 
-# -------------------------
-# MARKET
-# -------------------------
+# -----------------------------
+# MARKET (HORIZON)
+# -----------------------------
 
 def find_market(asset):
 
-    start = 0
+    url = "https://horizon.market/api/orders"
+
+    r = requests.get(url, headers=HEADERS).json()
+
     best = None
 
-    while start < 500:
+    for o in r["orders"]:
 
-        url = f"https://tokenscan.io/explorer/orders?start={start}&length=50"
+        if o["give_asset"] != asset:
+            continue
 
-        rows = requests.get(url).json()["data"]
+        give = float(o["give_quantity"])
+        get = float(o["get_quantity"])
 
-        if not rows:
-            break
+        price = get / give
 
-        for r in rows:
+        if best is None or price < best["price"]:
 
-            give_qty = float(r[3])
-            give_asset = r[4]
-
-            get_qty = float(r[5])
-            get_asset = r[6]
-
-            if give_asset == asset and get_asset == "XCP":
-
-                price = get_qty / give_qty
-
-                if best is None or price < best["price"]:
-
-                    best = {
-                        "price": price,
-                        "tx": r[9]
-                    }
-
-        start += 50
+            best = {
+                "price": price,
+                "tx": o["tx_index"]
+            }
 
     return best
 
 
-# -------------------------
+# -----------------------------
 # COMMANDS
-# -------------------------
+# -----------------------------
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
@@ -247,17 +214,15 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Best order
 
-{data['price']:.2f} XCP
+{data['price']:.4f} XCP
 
-https://tokenscan.io/tx/{data['tx']}
+https://cp20.tokenscan.io/tx/{data['tx']}
 """
 
     await update.message.reply_photo(ASSETS[asset], caption=text)
 
 
-# -------------------------
-# BOT START
-# -------------------------
+# -----------------------------
 
 def main():
 
