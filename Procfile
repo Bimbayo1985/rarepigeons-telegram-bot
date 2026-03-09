@@ -1,2 +1,1 @@
-worker: python bot.py
-watcher: python trade_watcher.py
+worker: python bot.py & python trade_watcher.py
