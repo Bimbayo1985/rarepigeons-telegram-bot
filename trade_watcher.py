@@ -25,52 +25,83 @@ def send_photo(image, caption):
 
 def load_assets():
 
-    data = requests.get(JSON_URL).json()
+    r = requests.get(JSON_URL)
+
+    data = r.json()
 
     return {c["asset"]: c["image"] for c in data["cards"]}
+
+
+def safe_json(url):
+
+    try:
+        r = requests.get(url, timeout=10)
+        return r.json()
+    except:
+        return None
 
 
 assets = load_assets()
 
 print("Rare Pigeons watcher started")
 
-
-def get_latest_ids():
-
-    d1 = requests.get(DISPENSES_URL).json()["data"][0][0]
-    d2 = requests.get(DISPENSERS_URL).json()["data"][0][0]
-    d3 = requests.get(ORDERS_URL).json()["data"][0][0]
-
-    return d1, d2, d3
+last_dispense = 0
+last_dispenser = 0
+last_order = 0
 
 
-last_dispense, last_dispenser, last_order = get_latest_ids()
+def init_ids():
+
+    global last_dispense
+    global last_dispenser
+    global last_order
+
+    d = safe_json(DISPENSES_URL)
+    if d and d["data"]:
+        last_dispense = d["data"][0][0]
+
+    d = safe_json(DISPENSERS_URL)
+    if d and d["data"]:
+        last_dispenser = d["data"][0][0]
+
+    d = safe_json(ORDERS_URL)
+    if d and d["data"]:
+        last_order = d["data"][0][0]
+
+
+init_ids()
+
+print("Watcher initialized")
 
 
 while True:
 
     try:
 
-        # DISPENSER SALES
+        # ------------------
+        # DISPENSE SALES
+        # ------------------
 
-        r = requests.get(DISPENSES_URL).json()
+        r = safe_json(DISPENSES_URL)
 
-        for row in r["data"]:
+        if r:
 
-            event_id = row[0]
+            for row in r["data"]:
 
-            if event_id <= last_dispense:
-                break
+                event_id = row[0]
 
-            asset = row[4]
+                if event_id <= last_dispense:
+                    break
 
-            if asset in assets:
+                asset = row[4]
 
-                buyer = row[3]
-                price = row[6]
-                tx = row[7]
+                if asset in assets:
 
-                caption = f"""
+                    buyer = row[3]
+                    price = row[6]
+                    tx = row[7]
+
+                    caption = f"""
 🐦 SOLD
 
 {asset}
@@ -84,30 +115,34 @@ Buyer
 https://tokenscan.io/tx/{tx}
 """
 
-                send_photo(assets[asset], caption)
+                    send_photo(assets[asset], caption)
 
-            last_dispense = event_id
+                last_dispense = event_id
 
 
+        # ------------------
         # DISPENSER CREATED
+        # ------------------
 
-        r = requests.get(DISPENSERS_URL).json()
+        r = safe_json(DISPENSERS_URL)
 
-        for row in r["data"]:
+        if r:
 
-            event_id = row[0]
+            for row in r["data"]:
 
-            if event_id <= last_dispenser:
-                break
+                event_id = row[0]
 
-            asset = row[4]
+                if event_id <= last_dispenser:
+                    break
 
-            if asset in assets:
+                asset = row[4]
 
-                seller = row[3]
-                price = row[6]
+                if asset in assets:
 
-                caption = f"""
+                    seller = row[3]
+                    price = row[6]
+
+                    caption = f"""
 🟡 DISPENSER CREATED
 
 {asset}
@@ -119,77 +154,77 @@ Seller
 {seller}
 """
 
-                send_photo(assets[asset], caption)
+                    send_photo(assets[asset], caption)
 
-            last_dispenser = event_id
+                last_dispenser = event_id
 
 
+        # ------------------
         # DEX EVENTS
+        # ------------------
 
-        r = requests.get(ORDERS_URL).json()
+        r = safe_json(ORDERS_URL)
 
-        for row in r["data"]:
+        if r:
 
-            event_id = row[0]
+            for row in r["data"]:
 
-            if event_id <= last_order:
-                break
+                event_id = row[0]
 
-            give_qty = float(row[3])
-            give_asset = row[4]
+                if event_id <= last_order:
+                    break
 
-            get_qty = float(row[5])
-            get_asset = row[6]
+                give_qty = float(row[3])
+                give_asset = row[4]
 
-            status = row[7]
+                get_qty = float(row[5])
+                get_asset = row[6]
 
-            asset = None
-            event = None
-            price = None
+                status = row[7]
 
+                asset = None
+                event = None
+                price = None
 
-            if give_asset in assets:
+                if give_asset in assets:
 
-                asset = give_asset
-                price = get_qty / give_qty
+                    asset = give_asset
+                    price = get_qty / give_qty
 
-                if status == "open":
-                    event = "🔵 SELL ORDER"
+                    if status == "open":
+                        event = "🔵 SELL ORDER"
 
-                if status == "filled":
-                    event = "🔥 DEX SALE"
+                    if status == "filled":
+                        event = "🔥 DEX SALE"
 
+                elif get_asset in assets:
 
-            elif get_asset in assets:
+                    asset = get_asset
+                    price = give_qty / get_qty
 
-                asset = get_asset
-                price = give_qty / get_qty
+                    if status == "open":
+                        event = "🟢 BUY ORDER"
 
-                if status == "open":
-                    event = "🟢 BUY ORDER"
+                    if status == "filled":
+                        event = "🔥 DEX SALE"
 
-                if status == "filled":
-                    event = "🔥 DEX SALE"
+                if asset and event:
 
-
-            if asset and event:
-
-                caption = f"""
+                    caption = f"""
 {event}
 
 {asset}
 
 Price
-{price} XCP
+{price:.4f} XCP
 """
 
-                send_photo(assets[asset], caption)
+                    send_photo(assets[asset], caption)
 
-            last_order = event_id
-
+                last_order = event_id
 
     except Exception as e:
 
-        print("Error:", e)
+        print("Watcher error:", e)
 
     time.sleep(20)
