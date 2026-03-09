@@ -5,6 +5,7 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
@@ -55,7 +56,7 @@ Rare Pigeons Bot
 
 
 # -----------------------------
-# RANDOM
+# RANDOM CARD
 # -----------------------------
 
 async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -69,7 +70,7 @@ async def random_card(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # -----------------------------
-# PIGEON
+# PIGEON CARD
 # -----------------------------
 
 async def pigeon(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -127,19 +128,21 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     price, tx = sale
 
-    text = f"""
-{asset} last sale
+    text = f"""{asset} last sale
 
 Price: {price} BTC
 
 https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_text(text)
+    await update.message.reply_photo(
+        photo=CARDS.get(asset),
+        caption=text
+    )
 
 
 # -----------------------------
-# FLOOR
+# FLOOR DISPENSER
 # -----------------------------
 
 def get_floor(asset):
@@ -175,19 +178,21 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     price, tx = listing
 
-    text = f"""
-{asset} floor
+    text = f"""{asset} floor
 
 Price: {price} BTC
 
 https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_text(text)
+    await update.message.reply_photo(
+        photo=CARDS.get(asset),
+        caption=text
+    )
 
 
 # -----------------------------
-# MARKET
+# MARKET ORDER
 # -----------------------------
 
 def get_market(asset):
@@ -235,8 +240,7 @@ async def market(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     price, remaining, tx = data
 
-    text = f"""
-{asset} market
+    text = f"""{asset} market
 
 Price: {price} XCP
 Available: {remaining}
@@ -244,7 +248,10 @@ Available: {remaining}
 https://tokenscan.io/tx/{tx}
 """
 
-    await update.message.reply_text(text)
+    await update.message.reply_photo(
+        photo=CARDS.get(asset),
+        caption=text
+    )
 
 
 # -----------------------------
