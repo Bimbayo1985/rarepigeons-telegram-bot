@@ -1,1 +1,2 @@
-worker: python bot.py & python trade_watcher.py
+web: python bot.py
+worker: python trade_watcher.py
