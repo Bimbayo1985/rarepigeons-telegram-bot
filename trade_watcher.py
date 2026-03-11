@@ -12,7 +12,6 @@ LIST_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/ma
 CHECK_INTERVAL = 15
 CARDS_REFRESH = 300
 
-
 cards = {}
 
 seen_dispenses = set()
@@ -104,22 +103,15 @@ def check_dispenses():
 
             seen_dispenses.add(tx_hash)
 
-            try:
+            btc = float(tx["btc_amount"]) / 100000000
+            qty = float(tx["dispense_quantity"]) / 100000000
 
-                btc = float(tx["btc_amount"])
-                qty = float(tx["dispense_quantity"])
-
-                price = btc / qty if qty else 0
-
-            except:
-
-                price = 0
-                qty = 1
+            price = btc / qty if qty else 0
 
             caption = (
                 f"{asset} sold via dispenser\n\n"
                 f"Price: {price:.8f} BTC\n"
-                f"Quantity: {int(qty)}\n\n"
+                f"Quantity: {qty:.0f}\n\n"
                 f"https://tokenscan.io/tx/{tx_hash}"
             )
 
@@ -146,20 +138,13 @@ def check_dispensers():
 
             seen_dispensers.add(tx)
 
-            try:
-
-                price = float(d["satoshi_price"]) / 100000000
-                qty = int(d["give_remaining"])
-
-            except:
-
-                price = 0
-                qty = 0
+            price = float(d["satoshi_price"]) / 100000000
+            qty = float(d["give_remaining"]) / 100000000
 
             caption = (
                 f"{asset} dispenser opened\n\n"
                 f"Price: {price:.8f} BTC\n"
-                f"Quantity: {qty}\n\n"
+                f"Quantity: {qty:.0f}\n\n"
                 f"https://tokenscan.io/tx/{tx}"
             )
 
@@ -186,24 +171,17 @@ def check_orders():
 
             seen_orders.add(tx_hash)
 
-            try:
+            give_qty = float(o["give_quantity"]) / 100000000
+            get_qty = float(o["get_quantity"]) / 100000000
 
-                give_qty = float(o["give_quantity"])
-                get_qty = float(o["get_quantity"])
-                get_asset = o["get_asset"]
+            get_asset = o["get_asset"]
 
-                price = get_qty / give_qty if give_qty else 0
-
-            except:
-
-                give_qty = 1
-                price = 0
-                get_asset = ""
+            price = get_qty / give_qty if give_qty else 0
 
             caption = (
                 f"{asset} sell order placed\n\n"
                 f"Price: {price:.4f} {get_asset}\n"
-                f"Quantity: {give_qty}\n\n"
+                f"Quantity: {give_qty:.0f}\n\n"
                 f"https://tokenscan.io/tx/{tx_hash}"
             )
 
@@ -244,22 +222,15 @@ def check_matches():
 
         image = cards[asset]
 
-        try:
-
-            qty = float(m["forward_quantity"])
-            price = float(m["backward_quantity"]) / qty if qty else 0
-
-        except:
-
-            qty = 1
-            price = 0
+        qty = float(m["forward_quantity"]) / 100000000
+        price = (float(m["backward_quantity"]) / 100000000) / qty if qty else 0
 
         tx = m["tx0_hash"]
 
         caption = (
             f"{asset} order filled\n\n"
             f"Price: {price:.4f} {backward_asset}\n"
-            f"Quantity: {qty}\n\n"
+            f"Quantity: {qty:.0f}\n\n"
             f"https://tokenscan.io/tx/{tx}"
         )
 
