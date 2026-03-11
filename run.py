@@ -1,0 +1,18 @@
+import threading
+import subprocess
+import sys
+
+def run_bot():
+subprocess.run([sys.executable, "bot.py"])
+
+def run_watcher():
+subprocess.run([sys.executable, "trade_watcher.py"])
+
+t1 = threading.Thread(target=run_bot)
+t2 = threading.Thread(target=run_watcher)
+
+t1.start()
+t2.start()
+
+t1.join()
+t2.join()
