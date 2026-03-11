@@ -1,262 +1,294 @@
 import os
 import time
-import json
 import requests
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rarepigeons/main/list.json"
 
-IMAGE_BASE = "https://rarepigeons.com/cards/"
+DISPENSERS_API = "https://tokenscan.io/api/dispensers/"
+DISPENSES_API = "https://tokenscan.io/api/dispenses/"
+ORDERS_API = "https://api.unspendablelabs.com:4000/v2/orders?status=open"
+MATCHES_API = "https://api.unspendablelabs.com:4000/v2/order_matches"
 
 CHECK_INTERVAL = 15
+CARDS_REFRESH = 300  # 5 хвилин
 
-STATE_FILE = "watcher_state.json"
+cards = {}
 
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+seen_dispenses = set()
+seen_dispensers = set()
+seen_orders = set()
+seen_matches = set()
 
-
-# -----------------------------
-# LOAD CARDS
-# -----------------------------
-
-cards_data = requests.get(LIST_JSON).json()["cards"]
-
-CARDS = {}
-ASSETS = []
-
-for c in cards_data:
-
-    asset = c["asset"]
-    image = c["image"]
-
-    if not image.startswith("http"):
-        image = IMAGE_BASE + image
-
-    CARDS[asset] = image
-    ASSETS.append(asset)
+last_cards_refresh = 0
 
 
-# -----------------------------
-# STATE
-# -----------------------------
+def send_photo(image, caption):
 
-if os.path.exists(STATE_FILE):
+    try:
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    with open(STATE_FILE) as f:
-        state = json.load(f)
-
-else:
-
-    state = {
-        "dispenses": [],
-        "dispensers": [],
-        "orders": [],
-        "matches": []
-    }
-
-
-def save_state():
-
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
+        requests.post(
+            url,
+            data={
+                "chat_id": CHAT_ID,
+                "photo": image,
+                "caption": caption
+            },
+            timeout=10
+        )
+    except:
+        pass
 
 
-# -----------------------------
-# TELEGRAM
-# -----------------------------
+def safe_json(url):
 
-def send_photo(asset, text):
+    try:
+        r = requests.get(url, timeout=15)
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+        if r.status_code != 200:
+            return None
 
-    data = {
-        "chat_id": CHAT_ID,
-        "photo": CARDS.get(asset),
-        "caption": text
-    }
+        return r.json()
 
-    requests.post(url, data=data)
+    except:
+        return None
 
 
-# -----------------------------
-# DISPENSE SALES
-# -----------------------------
+def load_cards():
+
+    global cards
+
+    data = safe_json(LIST_JSON)
+
+    if not data:
+        return
+
+    for c in data["cards"]:
+        cards[c["asset"].upper()] = c["image"]
+
+
+def refresh_cards():
+
+    global last_cards_refresh
+
+    if time.time() - last_cards_refresh > CARDS_REFRESH:
+        load_cards()
+        last_cards_refresh = time.time()
+
 
 def check_dispenses():
 
-    for asset in ASSETS:
+    for asset, image in cards.items():
 
-        url = f"https://tokenscan.io/api/dispenses/{asset}"
+        data = safe_json(DISPENSES_API + asset)
 
-        r = requests.get(url, headers=HEADERS).json()
+        if not data:
+            continue
 
-        for d in r["data"]:
+        for tx in data.get("data", []):
 
-            tx = d["tx_hash"]
+            tx_hash = tx["tx_hash"]
 
-            if tx in state["dispenses"]:
+            if tx_hash in seen_dispenses:
                 continue
 
-            state["dispenses"].append(tx)
+            seen_dispenses.add(tx_hash)
 
-            price = d["btc_amount"]
+            try:
+                btc_amount = float(tx["btc_amount"])
+                price = float(tx["satoshi_price"])
+                qty = int(round(btc_amount / price))
+            except:
+                price = float(tx.get("satoshi_price", 0))
+                qty = int(tx.get("quantity", 1))
 
-            text = f"""{asset} sold via dispenser
+            caption = (
+                f"{asset} sold via dispenser\n\n"
+                f"Price: {price:.8f} BTC\n"
+                f"Quantity: {qty}\n\n"
+                f"https://tokenscan.io/tx/{tx_hash}"
+            )
 
-Price: {price} BTC
-Amount: 1
+            send_photo(image, caption)
 
-TX
-https://tokenscan.io/tx/{tx}
-"""
-
-            send_photo(asset, text)
-
-
-# -----------------------------
-# NEW DISPENSERS
-# -----------------------------
 
 def check_dispensers():
 
-    for asset in ASSETS:
+    for asset, image in cards.items():
 
-        url = f"https://tokenscan.io/api/dispensers/{asset}"
+        data = safe_json(DISPENSERS_API + asset + "?status=open")
 
-        r = requests.get(url, headers=HEADERS).json()
+        if not data:
+            continue
 
-        for d in r["data"]:
+        for d in data.get("data", []):
 
             tx = d["tx_hash"]
 
-            if tx in state["dispensers"]:
+            if tx in seen_dispensers:
                 continue
 
-            state["dispensers"].append(tx)
+            seen_dispensers.add(tx)
 
-            price = d["satoshi_price"]
-            amount = d["give_remaining"]
+            price = float(d["satoshi_price"])
+            qty = int(d["give_remaining"])
 
-            text = f"""{asset} listed via dispenser
+            caption = (
+                f"{asset} dispenser opened\n\n"
+                f"Price: {price:.8f} BTC\n"
+                f"Quantity: {qty}\n\n"
+                f"https://tokenscan.io/tx/{tx}"
+            )
 
-Amount: {amount}
-Price: {price} BTC
+            send_photo(image, caption)
 
-TX
-https://tokenscan.io/tx/{tx}
-"""
-
-            send_photo(asset, text)
-
-
-# -----------------------------
-# ORDERS
-# -----------------------------
 
 def check_orders():
 
-    url = "https://api.unspendablelabs.com:4000/v2/orders?status=open"
+    data = safe_json(ORDERS_API)
 
-    r = requests.get(url, headers=HEADERS).json()
+    if not data:
+        return
 
-    for o in r["result"]:
+    for o in data.get("result", []):
 
-        tx = o["tx_hash"]
+        tx = str(o["tx_index"])
 
-        if tx in state["orders"]:
+        if tx in seen_orders:
             continue
+
+        seen_orders.add(tx)
 
         give_asset = o["give_asset"]
         get_asset = o["get_asset"]
 
-        if give_asset not in ASSETS and get_asset not in ASSETS:
+        if give_asset in cards:
+            asset = give_asset
+            image = cards[asset]
+        elif get_asset in cards:
+            asset = get_asset
+            image = cards[asset]
+        else:
             continue
 
-        state["orders"].append(tx)
+        give_qty = float(o["give_quantity"])
+        get_qty = float(o["get_quantity"])
 
-        if give_asset in ASSETS:
+        price = get_qty / give_qty
 
-            text = f"""{give_asset} sell order
+        if give_asset in cards:
 
-Sell: {o["give_quantity"]} {give_asset}
-Price: {o["get_price"]} {get_asset}
-
-TX
-https://tokenscan.io/tx/{tx}
-"""
-
-            send_photo(give_asset, text)
+            caption = (
+                f"{asset} sell order placed\n\n"
+                f"Price: {price:.4f} {get_asset}\n"
+                f"Quantity: {give_qty}\n\n"
+                f"https://cp20.tokenscan.io/tx/{tx}"
+            )
 
         else:
 
-            text = f"""{get_asset} buy order
+            caption = (
+                f"{asset} buy order placed\n\n"
+                f"Price: {price:.4f} {give_asset}\n"
+                f"Quantity: {get_qty}\n\n"
+                f"https://cp20.tokenscan.io/tx/{tx}"
+            )
 
-Buy: {o["get_quantity"]} {get_asset}
-Price: {o["give_price"]} {give_asset}
+        send_photo(image, caption)
 
-TX
-https://tokenscan.io/tx/{tx}
-"""
-
-            send_photo(get_asset, text)
-
-
-# -----------------------------
-# MATCHES
-# -----------------------------
 
 def check_matches():
 
-    url = "https://api.unspendablelabs.com:4000/v2/order_matches"
+    data = safe_json(MATCHES_API)
 
-    r = requests.get(url, headers=HEADERS).json()
+    if not data:
+        return
 
-    for m in r["result"]:
+    for m in data.get("result", []):
 
-        tx = m["tx_hash"]
+        match_id = str(m["id"])
 
-        if tx in state["matches"]:
+        if match_id in seen_matches:
             continue
 
-        asset = m["forward_asset"]
+        seen_matches.add(match_id)
 
-        if asset not in ASSETS:
+        forward_asset = m["forward_asset"]
+        backward_asset = m["backward_asset"]
+
+        if forward_asset in cards:
+            asset = forward_asset
+            image = cards[asset]
+        elif backward_asset in cards:
+            asset = backward_asset
+            image = cards[asset]
+        else:
             continue
 
-        state["matches"].append(tx)
+        qty = float(m["forward_quantity"])
+        price = float(m["backward_quantity"]) / qty
 
-        text = f"""{asset} trade executed
+        tx = m["tx0_hash"]
 
-Amount: {m["forward_quantity"]}
+        caption = (
+            f"{asset} order filled\n\n"
+            f"Price: {price:.4f} {backward_asset}\n"
+            f"Quantity: {qty}\n\n"
+            f"https://tokenscan.io/tx/{tx}"
+        )
 
-TX
-https://tokenscan.io/tx/{tx}
-"""
-
-        send_photo(asset, text)
+        send_photo(image, caption)
 
 
-# -----------------------------
-# LOOP
-# -----------------------------
+def initialize():
 
-print("Watcher started")
+    load_cards()
 
-while True:
+    for asset in cards:
 
-    try:
+        d = safe_json(DISPENSES_API + asset)
+
+        if d:
+            for tx in d.get("data", []):
+                seen_dispenses.add(tx["tx_hash"])
+
+        d = safe_json(DISPENSERS_API + asset + "?status=open")
+
+        if d:
+            for tx in d.get("data", []):
+                seen_dispensers.add(tx["tx_hash"])
+
+    o = safe_json(ORDERS_API)
+
+    if o:
+        for tx in o.get("result", []):
+            seen_orders.add(str(tx["tx_index"]))
+
+    m = safe_json(MATCHES_API)
+
+    if m:
+        for tx in m.get("result", []):
+            seen_matches.add(str(tx["id"]))
+
+
+def main():
+
+    initialize()
+
+    while True:
+
+        refresh_cards()
 
         check_dispenses()
         check_dispensers()
         check_orders()
         check_matches()
 
-        save_state()
+        time.sleep(CHECK_INTERVAL)
 
-    except Exception as e:
 
-        print("Watcher error:", e)
-
-    time.sleep(CHECK_INTERVAL)
+if __name__ == "__main__":
+    main()
