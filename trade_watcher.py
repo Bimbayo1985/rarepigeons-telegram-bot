@@ -5,7 +5,7 @@ import requests
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rarepigeons/main/list.json"
+LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
 DISPENSERS_API = "https://tokenscan.io/api/dispensers/"
 DISPENSES_API = "https://tokenscan.io/api/dispenses/"
@@ -13,7 +13,8 @@ ORDERS_API = "https://api.unspendablelabs.com:4000/v2/orders?status=open"
 MATCHES_API = "https://api.unspendablelabs.com:4000/v2/order_matches"
 
 CHECK_INTERVAL = 15
-CARDS_REFRESH = 300  # 5 хвилин
+CARDS_REFRESH = 300
+
 
 cards = {}
 
@@ -28,6 +29,7 @@ last_cards_refresh = 0
 def send_photo(image, caption):
 
     try:
+
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
         requests.post(
@@ -39,6 +41,7 @@ def send_photo(image, caption):
             },
             timeout=10
         )
+
     except:
         pass
 
@@ -46,6 +49,7 @@ def send_photo(image, caption):
 def safe_json(url):
 
     try:
+
         r = requests.get(url, timeout=15)
 
         if r.status_code != 200:
@@ -75,7 +79,9 @@ def refresh_cards():
     global last_cards_refresh
 
     if time.time() - last_cards_refresh > CARDS_REFRESH:
+
         load_cards()
+
         last_cards_refresh = time.time()
 
 
@@ -98,10 +104,13 @@ def check_dispenses():
             seen_dispenses.add(tx_hash)
 
             try:
+
                 btc_amount = float(tx["btc_amount"])
                 price = float(tx["satoshi_price"])
                 qty = int(round(btc_amount / price))
+
             except:
+
                 price = float(tx.get("satoshi_price", 0))
                 qty = int(tx.get("quantity", 1))
 
@@ -166,11 +175,15 @@ def check_orders():
         get_asset = o["get_asset"]
 
         if give_asset in cards:
+
             asset = give_asset
             image = cards[asset]
+
         elif get_asset in cards:
+
             asset = get_asset
             image = cards[asset]
+
         else:
             continue
 
@@ -220,11 +233,15 @@ def check_matches():
         backward_asset = m["backward_asset"]
 
         if forward_asset in cards:
+
             asset = forward_asset
             image = cards[asset]
+
         elif backward_asset in cards:
+
             asset = backward_asset
             image = cards[asset]
+
         else:
             continue
 
