@@ -130,7 +130,7 @@ async def ls(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"""{asset} last sale
 
-Price: {price} BTC
+Price: {price:.8f} BTC
 
 https://tokenscan.io/tx/{tx}
 """
@@ -180,7 +180,7 @@ async def floor(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = f"""{asset} floor
 
-Price: {price} BTC
+Price: {price:.8f} BTC
 
 https://tokenscan.io/tx/{tx}
 """
