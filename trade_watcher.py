@@ -27,10 +27,26 @@ def send_photo(url, caption):
     )
 
 
-def get_cards():
+LIST_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/refs/heads/main/list.json"
 
-    with open("list.json") as f:
-        return set(json.load(f))
+def get_cards():
+    try:
+        r = requests.get(LIST_URL)
+        r.raise_for_status()
+        data = r.json()
+
+        # якщо json має структуру {"assets":[...]}
+        if isinstance(data, dict) and "assets" in data:
+            return set(data["assets"])
+
+        # якщо json просто список
+        return set(data)
+
+    except Exception as e:
+        print("Error loading card list:", e)
+        return set()
+
+cards = get_cards()
 
 
 def get_image(asset):
