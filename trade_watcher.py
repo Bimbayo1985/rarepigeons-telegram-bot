@@ -7,14 +7,10 @@ CHAT_ID = os.getenv("CHAT_ID")
 
 LIST_JSON = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
 
-DISPENSERS_API = "https://tokenscan.io/api/dispensers/"
-DISPENSES_API = "https://tokenscan.io/api/dispenses/"
-ORDERS_API = "https://api.unspendablelabs.com:4000/v2/orders?status=open"
-MATCHES_API = "https://api.unspendablelabs.com:4000/v2/order_matches"
+BASE = "https://api.unspendablelabs.com:4000/v2"
 
 CHECK_INTERVAL = 15
 CARDS_REFRESH = 300
-
 
 cards = {}
 
@@ -70,6 +66,8 @@ def load_cards():
     if not data:
         return
 
+    cards = {}
+
     for c in data["cards"]:
         cards[c["asset"].upper()] = c["image"]
 
@@ -89,12 +87,14 @@ def check_dispenses():
 
     for asset, image in cards.items():
 
-        data = safe_json(DISPENSES_API + asset)
+        url = f"{BASE}/dispenses?asset={asset}"
+
+        data = safe_json(url)
 
         if not data:
             continue
 
-        for tx in data.get("data", []):
+        for tx in data.get("result", []):
 
             tx_hash = tx["tx_hash"]
 
@@ -106,18 +106,18 @@ def check_dispenses():
             try:
 
                 btc_amount = float(tx["btc_amount"])
-                price = float(tx["satoshi_price"])
-                qty = int(round(btc_amount / price))
+                qty = float(tx["dispense_quantity"])
+                price = btc_amount / qty
 
             except:
 
-                price = float(tx.get("satoshi_price", 0))
-                qty = int(tx.get("quantity", 1))
+                price = 0
+                qty = 1
 
             caption = (
                 f"{asset} sold via dispenser\n\n"
                 f"Price: {price:.8f} BTC\n"
-                f"Quantity: {qty}\n\n"
+                f"Quantity: {int(qty)}\n\n"
                 f"https://tokenscan.io/tx/{tx_hash}"
             )
 
@@ -128,12 +128,14 @@ def check_dispensers():
 
     for asset, image in cards.items():
 
-        data = safe_json(DISPENSERS_API + asset + "?status=open")
+        url = f"{BASE}/dispensers?asset={asset}&status=open"
+
+        data = safe_json(url)
 
         if not data:
             continue
 
-        for d in data.get("data", []):
+        for d in data.get("result", []):
 
             tx = d["tx_hash"]
 
@@ -157,42 +159,30 @@ def check_dispensers():
 
 def check_orders():
 
-    data = safe_json(ORDERS_API)
+    for asset, image in cards.items():
 
-    if not data:
-        return
+        url = f"{BASE}/orders?give_asset={asset}"
 
-    for o in data.get("result", []):
+        data = safe_json(url)
 
-        tx = str(o["tx_index"])
-
-        if tx in seen_orders:
+        if not data:
             continue
 
-        seen_orders.add(tx)
+        for o in data.get("result", []):
 
-        give_asset = o["give_asset"]
-        get_asset = o["get_asset"]
+            tx = str(o["tx_index"])
 
-        if give_asset in cards:
+            if tx in seen_orders:
+                continue
 
-            asset = give_asset
-            image = cards[asset]
+            seen_orders.add(tx)
 
-        elif get_asset in cards:
+            give_qty = float(o["give_quantity"])
+            get_qty = float(o["get_quantity"])
 
-            asset = get_asset
-            image = cards[asset]
+            get_asset = o["get_asset"]
 
-        else:
-            continue
-
-        give_qty = float(o["give_quantity"])
-        get_qty = float(o["get_quantity"])
-
-        price = get_qty / give_qty
-
-        if give_asset in cards:
+            price = get_qty / give_qty if give_qty else 0
 
             caption = (
                 f"{asset} sell order placed\n\n"
@@ -201,21 +191,14 @@ def check_orders():
                 f"https://cp20.tokenscan.io/tx/{tx}"
             )
 
-        else:
-
-            caption = (
-                f"{asset} buy order placed\n\n"
-                f"Price: {price:.4f} {give_asset}\n"
-                f"Quantity: {get_qty}\n\n"
-                f"https://cp20.tokenscan.io/tx/{tx}"
-            )
-
-        send_photo(image, caption)
+            send_photo(image, caption)
 
 
 def check_matches():
 
-    data = safe_json(MATCHES_API)
+    url = f"{BASE}/order_matches"
+
+    data = safe_json(url)
 
     if not data:
         return
@@ -227,26 +210,26 @@ def check_matches():
         if match_id in seen_matches:
             continue
 
-        seen_matches.add(match_id)
-
         forward_asset = m["forward_asset"]
         backward_asset = m["backward_asset"]
 
+        asset = None
+
         if forward_asset in cards:
-
             asset = forward_asset
-            image = cards[asset]
 
-        elif backward_asset in cards:
-
+        if backward_asset in cards:
             asset = backward_asset
-            image = cards[asset]
 
-        else:
+        if not asset:
             continue
 
+        seen_matches.add(match_id)
+
+        image = cards[asset]
+
         qty = float(m["forward_quantity"])
-        price = float(m["backward_quantity"]) / qty
+        price = float(m["backward_quantity"]) / qty if qty else 0
 
         tx = m["tx0_hash"]
 
@@ -266,25 +249,25 @@ def initialize():
 
     for asset in cards:
 
-        d = safe_json(DISPENSES_API + asset)
+        d = safe_json(f"{BASE}/dispenses?asset={asset}")
 
         if d:
-            for tx in d.get("data", []):
+            for tx in d.get("result", []):
                 seen_dispenses.add(tx["tx_hash"])
 
-        d = safe_json(DISPENSERS_API + asset + "?status=open")
+        d = safe_json(f"{BASE}/dispensers?asset={asset}&status=open")
 
         if d:
-            for tx in d.get("data", []):
+            for tx in d.get("result", []):
                 seen_dispensers.add(tx["tx_hash"])
 
-    o = safe_json(ORDERS_API)
+        d = safe_json(f"{BASE}/orders?give_asset={asset}")
 
-    if o:
-        for tx in o.get("result", []):
-            seen_orders.add(str(tx["tx_index"]))
+        if d:
+            for tx in d.get("result", []):
+                seen_orders.add(str(tx["tx_index"]))
 
-    m = safe_json(MATCHES_API)
+    m = safe_json(f"{BASE}/order_matches")
 
     if m:
         for tx in m.get("result", []):
