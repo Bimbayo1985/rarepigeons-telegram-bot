@@ -1,288 +1,212 @@
-import os
-import time
 import requests
+import time
+import json
+import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-BASE = "https://api.unspendablelabs.com:4000/v2"
+API = "https://api.unspendablelabs.com/v2"
 
-LIST_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/main/list.json"
+SAT = 100000000
 
-CHECK_INTERVAL = 15
-CARDS_REFRESH = 300
-
-cards = {}
-
-seen_dispenses = set()
-seen_dispensers = set()
-seen_orders = set()
-seen_matches = set()
-
-last_cards_refresh = 0
+seen = set()
 
 
-def tg_photo(image, caption):
+def send_photo(url, caption):
 
-    try:
+    tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-
-        requests.post(
-            url,
-            data={
-                "chat_id": CHAT_ID,
-                "photo": image,
-                "caption": caption
-            },
-            timeout=15
-        )
-
-    except:
-        pass
+    requests.post(
+        tg,
+        data={
+            "chat_id": CHAT_ID,
+            "photo": url,
+            "caption": caption
+        }
+    )
 
 
-def api(url):
+def get_cards():
+
+    with open("list.json") as f:
+        return set(json.load(f))
+
+
+def get_image(asset):
 
     try:
+        r = requests.get(f"https://tokenscan.io/api/asset/{asset}")
+        j = r.json()
 
-        r = requests.get(url, timeout=20)
-
-        if r.status_code != 200:
-            return None
-
-        return r.json()
+        return j.get("image")
 
     except:
         return None
 
 
-def load_cards():
+def norm(q):
 
-    global cards
-
-    data = api(LIST_URL)
-
-    if not data:
-        return
-
-    cards = {}
-
-    for c in data["cards"]:
-        cards[c["asset"].upper()] = c["image"]
+    return round(q / SAT, 8)
 
 
-def refresh_cards():
-
-    global last_cards_refresh
-
-    if time.time() - last_cards_refresh > CARDS_REFRESH:
-
-        load_cards()
-
-        last_cards_refresh = time.time()
+cards = get_cards()
 
 
-def check_dispenses():
+while True:
 
-    for asset, image in cards.items():
+    try:
 
-        url = f"{BASE}/dispenses?asset={asset}"
+        # DISPENSER SALES
+        r = requests.get(f"{API}/dispenses?limit=30").json()
 
-        data = api(url)
+        for d in r["result"]:
 
-        if not data:
-            continue
+            asset = d["asset"]
 
-        for tx in data.get("result", []):
-
-            tx_hash = tx["tx_hash"]
-
-            if tx_hash in seen_dispenses:
+            if asset not in cards:
                 continue
-
-            seen_dispenses.add(tx_hash)
-
-            btc = float(tx["btc_amount"]) / 100000000
-            qty = float(tx["dispense_quantity"]) / 100000000
-
-            price = btc / qty if qty else 0
-
-            caption = (
-                f"{asset} sold via dispenser\n\n"
-                f"Price: {price:.8f} BTC\n"
-                f"Quantity: {qty:.0f}\n\n"
-                f"https://tokenscan.io/tx/{tx_hash}"
-            )
-
-            tg_photo(image, caption)
-
-
-def check_dispensers():
-
-    for asset, image in cards.items():
-
-        url = f"{BASE}/dispensers?asset={asset}&status=open"
-
-        data = api(url)
-
-        if not data:
-            continue
-
-        for d in data.get("result", []):
 
             tx = d["tx_hash"]
 
-            if tx in seen_dispensers:
+            if tx in seen:
                 continue
 
-            seen_dispensers.add(tx)
+            seen.add(tx)
 
-            price = float(d["satoshi_price"]) / 100000000
-            qty = float(d["give_remaining"]) / 100000000
+            qty = d["dispense_quantity"]
+            btc = norm(d["btc_amount"])
 
-            caption = (
-                f"{asset} dispenser opened\n\n"
-                f"Price: {price:.8f} BTC\n"
-                f"Quantity: {qty:.0f}\n\n"
-                f"https://tokenscan.io/tx/{tx}"
-            )
+            img = get_image(asset)
 
-            tg_photo(image, caption)
+            caption = f"""{asset} sold via dispenser
 
+Price: {btc} BTC
+Quantity: {qty}
 
-def check_orders():
+https://tokenscan.io/tx/{tx}
+"""
 
-    for asset, image in cards.items():
+            send_photo(img, caption)
 
-        url = f"{BASE}/orders?give_asset={asset}"
+        # DISPENSER OPEN
+        r = requests.get(f"{API}/dispensers?status=0&limit=30").json()
 
-        data = api(url)
+        for d in r["result"]:
 
-        if not data:
-            continue
+            asset = d["asset"]
 
-        for o in data.get("result", []):
-
-            tx_hash = o["tx_hash"]
-
-            if tx_hash in seen_orders:
+            if asset not in cards:
                 continue
 
-            seen_orders.add(tx_hash)
+            tx = d["tx_hash"]
 
-            give_qty = float(o["give_quantity"]) / 100000000
-            get_qty = float(o["get_quantity"]) / 100000000
+            if tx in seen:
+                continue
 
+            seen.add(tx)
+
+            price_btc = norm(d["satoshirate"])
+
+            img = get_image(asset)
+
+            caption = f"""{asset} dispenser opened
+
+Price: {price_btc} BTC
+
+https://tokenscan.io/tx/{tx}
+"""
+
+            send_photo(img, caption)
+
+        # ORDERS
+        r = requests.get(f"{API}/orders?limit=30").json()
+
+        for o in r["result"]:
+
+            give_asset = o["give_asset"]
             get_asset = o["get_asset"]
 
-            price = get_qty / give_qty if give_qty else 0
+            tx = o["tx_hash"]
 
-            caption = (
-                f"{asset} sell order placed\n\n"
-                f"Price: {price:.4f} {get_asset}\n"
-                f"Quantity: {give_qty:.0f}\n\n"
-                f"https://tokenscan.io/tx/{tx_hash}"
-            )
+            if tx in seen:
+                continue
 
-            tg_photo(image, caption)
+            if give_asset in cards:
 
+                seen.add(tx)
 
-def check_matches():
+                qty = norm(o["give_remaining"])
+                price = norm(o["get_remaining"]) / qty
 
-    url = f"{BASE}/order_matches"
+                img = get_image(give_asset)
 
-    data = api(url)
+                caption = f"""{give_asset} sell order placed
 
-    if not data:
-        return
+Price: {round(price,8)} {get_asset}
+Quantity: {qty}
 
-    for m in data.get("result", []):
+https://tokenscan.io/tx/{tx}
+"""
 
-        match_id = str(m["id"])
+                send_photo(img, caption)
 
-        if match_id in seen_matches:
-            continue
+            elif get_asset in cards:
 
-        forward_asset = m["forward_asset"]
-        backward_asset = m["backward_asset"]
+                seen.add(tx)
 
-        asset = None
+                qty = norm(o["get_remaining"])
+                price = norm(o["give_remaining"]) / qty
 
-        if forward_asset in cards:
-            asset = forward_asset
+                img = get_image(get_asset)
 
-        if backward_asset in cards:
-            asset = backward_asset
+                caption = f"""{get_asset} buy order placed
 
-        if not asset:
-            continue
+Price: {round(price,8)} {give_asset}
+Quantity: {qty}
 
-        seen_matches.add(match_id)
+https://tokenscan.io/tx/{tx}
+"""
 
-        image = cards[asset]
+                send_photo(img, caption)
 
-        qty = float(m["forward_quantity"]) / 100000000
-        price = (float(m["backward_quantity"]) / 100000000) / qty if qty else 0
+        # ORDER FILLS
+        r = requests.get(f"{API}/order_matches?limit=30").json()
 
-        tx = m["tx0_hash"]
+        for m in r["result"]:
 
-        caption = (
-            f"{asset} order filled\n\n"
-            f"Price: {price:.4f} {backward_asset}\n"
-            f"Quantity: {qty:.0f}\n\n"
-            f"https://tokenscan.io/tx/{tx}"
-        )
+            asset = m["forward_asset"]
 
-        tg_photo(image, caption)
+            if asset not in cards:
+                continue
 
+            tx = m["tx0_hash"]
 
-def initialize():
+            if tx in seen:
+                continue
 
-    load_cards()
+            seen.add(tx)
 
-    for asset in cards:
+            qty = norm(m["forward_quantity"])
 
-        d = api(f"{BASE}/dispenses?asset={asset}")
+            price = norm(m["backward_quantity"]) / qty
 
-        if d:
-            for tx in d.get("result", []):
-                seen_dispenses.add(tx["tx_hash"])
+            token = m["backward_asset"]
 
-        d = api(f"{BASE}/dispensers?asset={asset}&status=open")
+            img = get_image(asset)
 
-        if d:
-            for tx in d.get("result", []):
-                seen_dispensers.add(tx["tx_hash"])
+            caption = f"""{asset} order filled
 
-        d = api(f"{BASE}/orders?give_asset={asset}")
+Price: {round(price,8)} {token}
+Quantity: {qty}
 
-        if d:
-            for tx in d.get("result", []):
-                seen_orders.add(tx["tx_hash"])
+https://tokenscan.io/tx/{tx}
+"""
 
-    m = api(f"{BASE}/order_matches")
+            send_photo(img, caption)
 
-    if m:
-        for tx in m.get("result", []):
-            seen_matches.add(str(tx["id"]))
+    except Exception as e:
 
+        print("Watcher error:", e)
 
-def main():
-
-    initialize()
-
-    while True:
-
-        refresh_cards()
-
-        check_dispenses()
-        check_dispensers()
-        check_orders()
-        check_matches()
-
-        time.sleep(CHECK_INTERVAL)
-
-
-if __name__ == "__main__":
-    main()
+    time.sleep(15)
