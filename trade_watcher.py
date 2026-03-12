@@ -52,7 +52,6 @@ def send_photo(url, caption):
 def load_cards():
 
     try:
-
         r = session.get(LIST_URL, timeout=30)
         data = r.json()
 
@@ -60,7 +59,6 @@ def load_cards():
         images = {}
 
         for c in data["cards"]:
-
             asset = c["asset"]
             img = c.get("image")
 
@@ -72,7 +70,6 @@ def load_cards():
         return cards, images
 
     except Exception as e:
-
         print("Card load error:", e)
         return set(), {}
 
@@ -82,13 +79,19 @@ def norm(q):
 
 
 cards, images = load_cards()
+
 print("WATCHER STARTED")
+
 
 def process_dispenses():
 
-    r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
+    try:
+        r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
+    except Exception as e:
+        print("dispenses API timeout")
+        return
 
-    for d in r["result"]:
+    for d in r.get("result", []):
 
         asset = d["asset"]
 
@@ -122,9 +125,13 @@ https://tokenscan.io/tx/{tx}
 
 def process_dispenser_open():
 
-    r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=30).json()
+    try:
+        r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=30).json()
+    except Exception:
+        print("dispensers API timeout")
+        return
 
-    for d in r["result"]:
+    for d in r.get("result", []):
 
         asset = d["asset"]
 
@@ -156,9 +163,13 @@ https://tokenscan.io/tx/{tx}
 
 def process_orders():
 
-    r = session.get(f"{API}/orders?limit=30", timeout=30).json()
+    try:
+        r = session.get(f"{API}/orders?limit=30", timeout=30).json()
+    except Exception:
+        print("orders API timeout")
+        return
 
-    for o in r["result"]:
+    for o in r.get("result", []):
 
         tx = o["tx_hash"]
 
@@ -219,9 +230,13 @@ https://tokenscan.io/tx/{tx}
 
 def process_fills():
 
-    r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
+    try:
+        r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
+    except Exception:
+        print("order_matches API timeout")
+        return
 
-    for m in r["result"]:
+    for m in r.get("result", []):
 
         asset = m["forward_asset"]
 
