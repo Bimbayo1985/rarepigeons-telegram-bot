@@ -1,101 +1,113 @@
 import requests
 import time
-import json
 import os
+import json
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
 API = "https://api.unspendablelabs.com/v2"
-
 SAT = 100000000
 
-seen = set()
+LIST_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/refs/heads/main/list.json"
+
+SEEN_FILE = "seen.json"
+
+session = requests.Session()
+
+
+def load_seen():
+    if os.path.exists(SEEN_FILE):
+        with open(SEEN_FILE, "r") as f:
+            return set(json.load(f))
+    return set()
+
+
+def save_seen(seen):
+    with open(SEEN_FILE, "w") as f:
+        json.dump(list(seen), f)
+
+
+seen = load_seen()
 
 
 def send_photo(url, caption):
 
     tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
 
-    requests.post(
-        tg,
-        data={
-            "chat_id": CHAT_ID,
-            "photo": url,
-            "caption": caption
-        }
-    )
-
-
-LIST_URL = "https://raw.githubusercontent.com/Bimbayo1985/rare-pigeons-assets/refs/heads/main/list.json"
-
-def get_cards():
     try:
-        r = requests.get(LIST_URL)
-        r.raise_for_status()
+        session.post(
+            tg,
+            data={
+                "chat_id": CHAT_ID,
+                "photo": url,
+                "caption": caption
+            },
+            timeout=10
+        )
+    except Exception as e:
+        print("Telegram error:", e)
+
+
+def load_cards():
+
+    try:
+
+        r = session.get(LIST_URL, timeout=10)
         data = r.json()
 
-        # якщо json має структуру {"assets":[...]}
-        if isinstance(data, dict) and "assets" in data:
-            return set(data["assets"])
+        cards = set()
+        images = {}
 
-        # якщо json просто список
-        return set(data)
+        for c in data["cards"]:
+
+            asset = c["asset"]
+            img = c.get("image")
+
+            cards.add(asset)
+            images[asset] = img
+
+        print("Cards loaded:", len(cards))
+
+        return cards, images
 
     except Exception as e:
-        print("Error loading card list:", e)
-        return set()
 
-cards = get_cards()
-
-
-def get_image(asset):
-
-    try:
-        r = requests.get(f"https://tokenscan.io/api/asset/{asset}")
-        j = r.json()
-
-        return j.get("image")
-
-    except:
-        return None
+        print("Card load error:", e)
+        return set(), {}
 
 
 def norm(q):
-
     return round(q / SAT, 8)
 
 
-cards = get_cards()
+cards, images = load_cards()
 
 
-while True:
+def process_dispenses():
 
-    try:
+    r = session.get(f"{API}/dispenses?limit=30", timeout=10).json()
 
-        # DISPENSER SALES
-        r = requests.get(f"{API}/dispenses?limit=30").json()
+    for d in r["result"]:
 
-        for d in r["result"]:
+        asset = d["asset"]
 
-            asset = d["asset"]
+        if asset not in cards:
+            continue
 
-            if asset not in cards:
-                continue
+        tx = d["tx_hash"]
 
-            tx = d["tx_hash"]
+        if tx in seen:
+            continue
 
-            if tx in seen:
-                continue
+        seen.add(tx)
 
-            seen.add(tx)
+        qty = d["dispense_quantity"]
+        btc = norm(d["btc_amount"])
 
-            qty = d["dispense_quantity"]
-            btc = norm(d["btc_amount"])
+        img = images.get(asset)
 
-            img = get_image(asset)
-
-            caption = f"""{asset} sold via dispenser
+        caption = f"""{asset} sold via dispenser
 
 Price: {btc} BTC
 Quantity: {qty}
@@ -103,61 +115,72 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-            send_photo(img, caption)
+        print("Dispenser sale:", asset)
 
-        # DISPENSER OPEN
-        r = requests.get(f"{API}/dispensers?status=0&limit=30").json()
+        send_photo(img, caption)
 
-        for d in r["result"]:
 
-            asset = d["asset"]
+def process_dispenser_open():
 
-            if asset not in cards:
-                continue
+    r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=10).json()
 
-            tx = d["tx_hash"]
+    for d in r["result"]:
 
-            if tx in seen:
-                continue
+        asset = d["asset"]
 
-            seen.add(tx)
+        if asset not in cards:
+            continue
 
-            price_btc = norm(d["satoshirate"])
+        tx = d["tx_hash"]
 
-            img = get_image(asset)
+        if tx in seen:
+            continue
 
-            caption = f"""{asset} dispenser opened
+        seen.add(tx)
 
-Price: {price_btc} BTC
+        price = norm(d["satoshirate"])
+
+        img = images.get(asset)
+
+        caption = f"""{asset} dispenser opened
+
+Price: {price} BTC
 
 https://tokenscan.io/tx/{tx}
 """
 
-            send_photo(img, caption)
+        print("Dispenser opened:", asset)
 
-        # ORDERS
-        r = requests.get(f"{API}/orders?limit=30").json()
+        send_photo(img, caption)
 
-        for o in r["result"]:
 
-            give_asset = o["give_asset"]
-            get_asset = o["get_asset"]
+def process_orders():
 
-            tx = o["tx_hash"]
+    r = session.get(f"{API}/orders?limit=30", timeout=10).json()
 
-            if tx in seen:
+    for o in r["result"]:
+
+        tx = o["tx_hash"]
+
+        if tx in seen:
+            continue
+
+        give_asset = o["give_asset"]
+        get_asset = o["get_asset"]
+
+        if give_asset in cards:
+
+            qty = norm(o["give_remaining"])
+            if qty == 0:
                 continue
 
-            if give_asset in cards:
+            price = norm(o["get_remaining"]) / qty
 
-                seen.add(tx)
+            seen.add(tx)
 
-                qty = norm(o["give_remaining"])
-                price = norm(o["get_remaining"]) / qty
+            img = images.get(give_asset)
 
-                img = get_image(give_asset)
-
-                caption = f"""{give_asset} sell order placed
+            caption = f"""{give_asset} sell order placed
 
 Price: {round(price,8)} {get_asset}
 Quantity: {qty}
@@ -165,18 +188,23 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-                send_photo(img, caption)
+            print("Sell order:", give_asset)
 
-            elif get_asset in cards:
+            send_photo(img, caption)
 
-                seen.add(tx)
+        elif get_asset in cards:
 
-                qty = norm(o["get_remaining"])
-                price = norm(o["give_remaining"]) / qty
+            qty = norm(o["get_remaining"])
+            if qty == 0:
+                continue
 
-                img = get_image(get_asset)
+            price = norm(o["give_remaining"]) / qty
 
-                caption = f"""{get_asset} buy order placed
+            seen.add(tx)
+
+            img = images.get(get_asset)
+
+            caption = f"""{get_asset} buy order placed
 
 Price: {round(price,8)} {give_asset}
 Quantity: {qty}
@@ -184,34 +212,40 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-                send_photo(img, caption)
+            print("Buy order:", get_asset)
 
-        # ORDER FILLS
-        r = requests.get(f"{API}/order_matches?limit=30").json()
+            send_photo(img, caption)
 
-        for m in r["result"]:
 
-            asset = m["forward_asset"]
+def process_fills():
 
-            if asset not in cards:
-                continue
+    r = session.get(f"{API}/order_matches?limit=30", timeout=10).json()
 
-            tx = m["tx0_hash"]
+    for m in r["result"]:
 
-            if tx in seen:
-                continue
+        asset = m["forward_asset"]
 
-            seen.add(tx)
+        if asset not in cards:
+            continue
 
-            qty = norm(m["forward_quantity"])
+        tx = m["tx0_hash"]
 
-            price = norm(m["backward_quantity"]) / qty
+        if tx in seen:
+            continue
 
-            token = m["backward_asset"]
+        qty = norm(m["forward_quantity"])
 
-            img = get_image(asset)
+        if qty == 0:
+            continue
 
-            caption = f"""{asset} order filled
+        price = norm(m["backward_quantity"]) / qty
+        token = m["backward_asset"]
+
+        seen.add(tx)
+
+        img = images.get(asset)
+
+        caption = f"""{asset} order filled
 
 Price: {round(price,8)} {token}
 Quantity: {qty}
@@ -219,7 +253,21 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-            send_photo(img, caption)
+        print("Order filled:", asset)
+
+        send_photo(img, caption)
+
+
+while True:
+
+    try:
+
+        process_dispenses()
+        process_dispenser_open()
+        process_orders()
+        process_fills()
+
+        save_seen(seen)
 
     except Exception as e:
 
