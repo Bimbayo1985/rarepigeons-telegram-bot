@@ -273,4 +273,4 @@ while True:
 
         print("Watcher error:", e)
 
-    time.sleep(15)
+    time.sleep(30)
