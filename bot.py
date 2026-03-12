@@ -14,12 +14,18 @@ IMAGE_BASE = "https://rarepigeons.com/cards/"
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
+HTTP_TIMEOUT = 15
+
 
 # -----------------------------
 # LOAD CARDS
 # -----------------------------
 
-cards_data = requests.get(LIST_JSON).json()["cards"]
+try:
+    cards_data = requests.get(LIST_JSON, timeout=HTTP_TIMEOUT).json()["cards"]
+except Exception as e:
+    print("Failed to load card list:", e)
+    cards_data = []
 
 CARDS = {}
 
@@ -99,7 +105,7 @@ def get_last_sale(asset):
 
     url = f"https://tokenscan.io/api/dispenses/{asset}"
 
-    r = requests.get(url, headers=HEADERS).json()
+    r = requests.get(url, headers=HEADERS, timeout=HTTP_TIMEOUT).json()
 
     if not r["data"]:
         return None
@@ -149,7 +155,7 @@ def get_floor(asset):
 
     url = f"https://tokenscan.io/api/dispensers/{asset}?status=open"
 
-    r = requests.get(url, headers=HEADERS).json()
+    r = requests.get(url, headers=HEADERS, timeout=HTTP_TIMEOUT).json()
 
     if not r["data"]:
         return None
@@ -199,7 +205,7 @@ def get_market(asset):
 
     url = f"https://api.unspendablelabs.com:4000/v2/orders?give_asset={asset}&status=open"
 
-    r = requests.get(url, headers=HEADERS).json()
+    r = requests.get(url, headers=HEADERS, timeout=HTTP_TIMEOUT).json()
 
     if not r["result"]:
         return None
@@ -269,4 +275,6 @@ app.add_handler(CommandHandler("market", market))
 
 print("Bot running")
 
-app.run_polling()
+app.run_polling(
+    drop_pending_updates=True
+)
