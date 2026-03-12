@@ -82,7 +82,7 @@ def norm(q):
 
 
 cards, images = load_cards()
-
+print("WATCHER STARTED")
 
 def process_dispenses():
 
