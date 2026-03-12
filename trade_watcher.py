@@ -28,9 +28,6 @@ def save_seen(seen):
         json.dump(list(seen), f)
 
 
-seen = load_seen()
-
-
 def send_photo(url, caption):
 
     tg = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
@@ -52,6 +49,7 @@ def send_photo(url, caption):
 def load_cards():
 
     try:
+
         r = session.get(LIST_URL, timeout=30)
         data = r.json()
 
@@ -59,6 +57,7 @@ def load_cards():
         images = {}
 
         for c in data["cards"]:
+
             asset = c["asset"]
             img = c.get("image")
 
@@ -70,6 +69,7 @@ def load_cards():
         return cards, images
 
     except Exception as e:
+
         print("Card load error:", e)
         return set(), {}
 
@@ -78,39 +78,41 @@ def norm(q):
     return round(q / SAT, 8)
 
 
-cards, images = load_cards()
+def main():
 
-print("WATCHER STARTED")
+    seen = load_seen()
+    cards, images = load_cards()
 
+    print("WATCHER STARTED")
 
-def process_dispenses():
+    while True:
 
-    try:
-        r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
-    except Exception as e:
-        print("dispenses API timeout")
-        return
+        try:
 
-    for d in r.get("result", []):
+            # DISPENSE SALES
+            try:
+                r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
 
-        asset = d["asset"]
+                for d in r.get("result", []):
 
-        if asset not in cards:
-            continue
+                    asset = d["asset"]
 
-        tx = d["tx_hash"]
+                    if asset not in cards:
+                        continue
 
-        if tx in seen:
-            continue
+                    tx = d["tx_hash"]
 
-        seen.add(tx)
+                    if tx in seen:
+                        continue
 
-        qty = d["dispense_quantity"]
-        btc = norm(d["btc_amount"])
+                    seen.add(tx)
 
-        img = images.get(asset)
+                    qty = d["dispense_quantity"]
+                    btc = norm(d["btc_amount"])
 
-        caption = f"""{asset} sold via dispenser
+                    img = images.get(asset)
+
+                    caption = f"""{asset} sold via dispenser
 
 Price: {btc} BTC
 Quantity: {qty}
@@ -118,80 +120,78 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-        print("Dispenser sale:", asset)
+                    print("Dispenser sale:", asset)
 
-        send_photo(img, caption)
+                    send_photo(img, caption)
+
+            except Exception:
+                print("dispenses API timeout")
 
 
-def process_dispenser_open():
+            # DISPENSER OPEN
+            try:
+                r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=30).json()
 
-    try:
-        r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=30).json()
-    except Exception:
-        print("dispensers API timeout")
-        return
+                for d in r.get("result", []):
 
-    for d in r.get("result", []):
+                    asset = d["asset"]
 
-        asset = d["asset"]
+                    if asset not in cards:
+                        continue
 
-        if asset not in cards:
-            continue
+                    tx = d["tx_hash"]
 
-        tx = d["tx_hash"]
+                    if tx in seen:
+                        continue
 
-        if tx in seen:
-            continue
+                    seen.add(tx)
 
-        seen.add(tx)
+                    price = norm(d["satoshirate"])
 
-        price = norm(d["satoshirate"])
+                    img = images.get(asset)
 
-        img = images.get(asset)
-
-        caption = f"""{asset} dispenser opened
+                    caption = f"""{asset} dispenser opened
 
 Price: {price} BTC
 
 https://tokenscan.io/tx/{tx}
 """
 
-        print("Dispenser opened:", asset)
+                    print("Dispenser opened:", asset)
 
-        send_photo(img, caption)
+                    send_photo(img, caption)
+
+            except Exception:
+                print("dispensers API timeout")
 
 
-def process_orders():
+            # ORDERS
+            try:
+                r = session.get(f"{API}/orders?limit=30", timeout=30).json()
 
-    try:
-        r = session.get(f"{API}/orders?limit=30", timeout=30).json()
-    except Exception:
-        print("orders API timeout")
-        return
+                for o in r.get("result", []):
 
-    for o in r.get("result", []):
+                    tx = o["tx_hash"]
 
-        tx = o["tx_hash"]
+                    if tx in seen:
+                        continue
 
-        if tx in seen:
-            continue
+                    give_asset = o["give_asset"]
+                    get_asset = o["get_asset"]
 
-        give_asset = o["give_asset"]
-        get_asset = o["get_asset"]
+                    if give_asset in cards:
 
-        if give_asset in cards:
+                        qty = norm(o["give_remaining"])
+                        if qty == 0:
+                            continue
 
-            qty = norm(o["give_remaining"])
-            if qty == 0:
-                continue
+                        price = norm(o["get_remaining"]) / qty
 
-            price = norm(o["get_remaining"]) / qty
+                        seen.add(tx)
 
-            seen.add(tx)
+                        img = images.get(give_asset)
 
-            img = images.get(give_asset)
-
-            caption = f"""{give_asset} sell order placed
+                        caption = f"""{give_asset} sell order placed
 
 Price: {round(price,8)} {get_asset}
 Quantity: {qty}
@@ -199,23 +199,23 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-            print("Sell order:", give_asset)
+                        print("Sell order:", give_asset)
 
-            send_photo(img, caption)
+                        send_photo(img, caption)
 
-        elif get_asset in cards:
+                    elif get_asset in cards:
 
-            qty = norm(o["get_remaining"])
-            if qty == 0:
-                continue
+                        qty = norm(o["get_remaining"])
+                        if qty == 0:
+                            continue
 
-            price = norm(o["give_remaining"]) / qty
+                        price = norm(o["give_remaining"]) / qty
 
-            seen.add(tx)
+                        seen.add(tx)
 
-            img = images.get(get_asset)
+                        img = images.get(get_asset)
 
-            caption = f"""{get_asset} buy order placed
+                        caption = f"""{get_asset} buy order placed
 
 Price: {round(price,8)} {give_asset}
 Quantity: {qty}
@@ -223,44 +223,43 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-            print("Buy order:", get_asset)
+                        print("Buy order:", get_asset)
 
-            send_photo(img, caption)
+                        send_photo(img, caption)
+
+            except Exception:
+                print("orders API timeout")
 
 
-def process_fills():
+            # ORDER FILLS
+            try:
+                r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
 
-    try:
-        r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
-    except Exception:
-        print("order_matches API timeout")
-        return
+                for m in r.get("result", []):
 
-    for m in r.get("result", []):
+                    asset = m["forward_asset"]
 
-        asset = m["forward_asset"]
+                    if asset not in cards:
+                        continue
 
-        if asset not in cards:
-            continue
+                    tx = m["tx0_hash"]
 
-        tx = m["tx0_hash"]
+                    if tx in seen:
+                        continue
 
-        if tx in seen:
-            continue
+                    qty = norm(m["forward_quantity"])
 
-        qty = norm(m["forward_quantity"])
+                    if qty == 0:
+                        continue
 
-        if qty == 0:
-            continue
+                    price = norm(m["backward_quantity"]) / qty
+                    token = m["backward_asset"]
 
-        price = norm(m["backward_quantity"]) / qty
-        token = m["backward_asset"]
+                    seen.add(tx)
 
-        seen.add(tx)
+                    img = images.get(asset)
 
-        img = images.get(asset)
-
-        caption = f"""{asset} order filled
+                    caption = f"""{asset} order filled
 
 Price: {round(price,8)} {token}
 Quantity: {qty}
@@ -268,24 +267,17 @@ Quantity: {qty}
 https://tokenscan.io/tx/{tx}
 """
 
-        print("Order filled:", asset)
+                    print("Order filled:", asset)
 
-        send_photo(img, caption)
+                    send_photo(img, caption)
 
+            except Exception:
+                print("order_matches API timeout")
 
-while True:
+            save_seen(seen)
 
-    try:
+        except Exception as e:
 
-        process_dispenses()
-        process_dispenser_open()
-        process_orders()
-        process_fills()
+            print("Watcher error:", e)
 
-        save_seen(seen)
-
-    except Exception as e:
-
-        print("Watcher error:", e)
-
-    time.sleep(30)
+        time.sleep(30)
