@@ -53,7 +53,7 @@ def load_cards():
 
     try:
 
-        r = session.get(LIST_URL, timeout=10)
+        r = session.get(LIST_URL, timeout=30)
         data = r.json()
 
         cards = set()
@@ -86,7 +86,7 @@ print("WATCHER STARTED")
 
 def process_dispenses():
 
-    r = session.get(f"{API}/dispenses?limit=30", timeout=10).json()
+    r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
 
     for d in r["result"]:
 
@@ -122,7 +122,7 @@ https://tokenscan.io/tx/{tx}
 
 def process_dispenser_open():
 
-    r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=10).json()
+    r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=30).json()
 
     for d in r["result"]:
 
@@ -156,7 +156,7 @@ https://tokenscan.io/tx/{tx}
 
 def process_orders():
 
-    r = session.get(f"{API}/orders?limit=30", timeout=10).json()
+    r = session.get(f"{API}/orders?limit=30", timeout=30).json()
 
     for o in r["result"]:
 
@@ -219,7 +219,7 @@ https://tokenscan.io/tx/{tx}
 
 def process_fills():
 
-    r = session.get(f"{API}/order_matches?limit=30", timeout=10).json()
+    r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
 
     for m in r["result"]:
 
