@@ -275,6 +275,10 @@ app.add_handler(CommandHandler("market", market))
 
 print("Bot running")
 
-app.run_polling(
-    drop_pending_updates=True
-)
+# закриваємо старі Telegram сесії
+try:
+    requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=10)
+except:
+    pass
+
+app.run_polling(drop_pending_updates=True)
