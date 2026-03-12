@@ -1,6 +1,8 @@
 import os
 import random
 import requests
+import threading
+import trade_watcher
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -280,5 +282,8 @@ try:
     requests.get(f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook", timeout=10)
 except:
     pass
+
+# запуск watcher
+threading.Thread(target=trade_watcher.main, daemon=True).start()
 
 app.run_polling(drop_pending_updates=True)
