@@ -85,11 +85,38 @@ def main():
 
     print("WATCHER STARTED")
 
+    # ініціалізація при першому запуску
+    if not seen:
+        print("Initializing watcher state")
+
+        try:
+            r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
+            for d in r.get("result", []):
+                seen.add(d["tx_hash"])
+        except:
+            pass
+
+        try:
+            r = session.get(f"{API}/orders?limit=30", timeout=30).json()
+            for o in r.get("result", []):
+                seen.add(o["tx_hash"])
+        except:
+            pass
+
+        try:
+            r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
+            for m in r.get("result", []):
+                seen.add(m["tx0_hash"])
+        except:
+            pass
+
+        save_seen(seen)
+
     while True:
 
         try:
 
-            # DISPENSE SALES
+            # DISPENSER SALES
             try:
                 r = session.get(f"{API}/dispenses?limit=30", timeout=30).json()
 
@@ -128,7 +155,7 @@ https://tokenscan.io/tx/{tx}
                 print("dispenses API timeout")
 
 
-            # DISPENSER OPEN
+            # DISPENSER OPENED
             try:
                 r = session.get(f"{API}/dispensers?status=0&limit=30", timeout=30).json()
 
@@ -165,7 +192,7 @@ https://tokenscan.io/tx/{tx}
                 print("dispensers API timeout")
 
 
-            # ORDERS
+            # ORDERS (buy + sell)
             try:
                 r = session.get(f"{API}/orders?limit=30", timeout=30).json()
 
@@ -178,6 +205,10 @@ https://tokenscan.io/tx/{tx}
 
                     give_asset = o["give_asset"]
                     get_asset = o["get_asset"]
+
+                    # ключова перевірка — pigeon може бути з будь-якого боку
+                    if give_asset not in cards and get_asset not in cards:
+                        continue
 
                     if give_asset in cards:
 
@@ -203,7 +234,7 @@ https://tokenscan.io/tx/{tx}
 
                         send_photo(img, caption)
 
-                    elif get_asset in cards:
+                    else:
 
                         qty = norm(o["get_remaining"])
                         if qty == 0:
@@ -231,7 +262,7 @@ https://tokenscan.io/tx/{tx}
                 print("orders API timeout")
 
 
-            # ORDER FILLS
+            # ORDER FILLED
             try:
                 r = session.get(f"{API}/order_matches?limit=30", timeout=30).json()
 
