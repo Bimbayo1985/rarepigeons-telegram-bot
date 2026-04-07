@@ -283,7 +283,7 @@ try:
 except:
     pass
 
-# запуск watcher
+# запуск watcher 
 threading.Thread(target=trade_watcher.main, daemon=True).start()
 
 app.run_polling(drop_pending_updates=True)
